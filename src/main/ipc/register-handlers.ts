@@ -5,6 +5,7 @@ import { AUDIO_FILE_FILTER } from '@shared/constants/audio'
 import { VIDEO_FILE_FILTER } from '@shared/constants/media'
 import {
   IPC_CHANNELS,
+  type EditPlanRequest,
   type ExportRenderRequest,
   type PersonAnalysisResponse,
   type PreviewRenderRequest,
@@ -25,6 +26,7 @@ import {
 import { importVideos } from '../services/video/importer'
 import {
   cancelRender,
+  createEditPlan,
   exportApprovedPreview,
   generatePreview
 } from '../services/video/renderer'
@@ -101,9 +103,14 @@ function isRenderSettings(value: unknown): value is RenderSettings {
     typeof preferences?.preferMotion === 'boolean' &&
     typeof preferences?.preferClearFootage === 'boolean' &&
     typeof preferences?.preferAudibleMoments === 'boolean' &&
+    typeof preferences?.preferSpeech === 'boolean' &&
     Number.isInteger(settings.selectionSeed) &&
     ['black', 'blurred'].includes(settings.fitBackground ?? '') &&
     ['low', 'medium', 'high'].includes(settings.blurStrength ?? '') &&
+    ['off', 'balanced', 'strong'].includes(settings.contentAwareness ?? '') &&
+    ['off', 'normal', 'strong'].includes(settings.speechCutProtection ?? '') &&
+    ['natural', 'beat-assisted', 'beat-strong'].includes(settings.cutSync ?? '') &&
+    ['center', 'smart-subject'].includes(settings.cropFocus ?? '') &&
     typeof settings.useEveryClip === 'boolean' &&
     (settings.targetDuration == null ||
       (typeof settings.targetDuration === 'number' && settings.targetDuration > 0)) &&
@@ -126,6 +133,7 @@ function isRenderSettings(value: unknown): value is RenderSettings {
     audio.soundtrackCrossfade <= 5 &&
     ['off', 'fast', 'accurate'].includes(audio?.normalizationMode ?? '') &&
     ['off', 'fast', 'accurate'].includes(audio?.finalMixNormalizationMode ?? '') &&
+    ['audio-level', 'speech-detection', 'automatic'].includes(audio?.duckingTrigger ?? '') &&
     Boolean(settings.personAnalysis) &&
     typeof settings.personAnalysis?.enabled === 'boolean' &&
     settings.personAnalysis?.provider === 'mediapipe-pose-lite' &&
@@ -166,14 +174,41 @@ function validatePreviewRequest(value: unknown): PreviewRenderRequest {
   const sourcePaths = validatePaths(request.sourcePaths)
   if (!sourcePaths.every(isAbsolute)) throw new Error('Every source must be a local file.')
   if (!isRenderSettings(request.settings)) throw new Error('The output settings are invalid.')
+  if (!isRenderPlan(request.plan)) throw new Error('Create a valid Edit Plan before generating a preview.')
+  if (request.plan.projectId !== request.projectId || request.plan.settingsFingerprint !== request.settingsFingerprint) {
+    throw new Error('The Edit Plan does not match this project configuration.')
+  }
+  if (request.plan.segments.some((segment) => !sourcePaths.includes(segment.sourcePath))) {
+    throw new Error('The Edit Plan contains a source outside this project.')
+  }
   return { ...request, renderId, sourcePaths, settings: request.settings } as PreviewRenderRequest
+}
+
+function validateEditPlanRequest(value: unknown): EditPlanRequest {
+  if (!value || typeof value !== 'object') throw new Error('The Edit Plan request is invalid.')
+  const request = value as Partial<EditPlanRequest>
+  const renderId = validateRenderId(request.renderId)
+  if (typeof request.projectId !== 'string' || !request.projectId || request.projectId.length > 100) {
+    throw new Error('The project identifier is invalid.')
+  }
+  if (!Number.isInteger(request.generation) || (request.generation ?? -1) < 0) {
+    throw new Error('The plan generation is invalid.')
+  }
+  if (typeof request.settingsFingerprint !== 'string' || request.settingsFingerprint.length < 8) {
+    throw new Error('The project settings fingerprint is invalid.')
+  }
+  const sourcePaths = validatePaths(request.sourcePaths)
+  if (!sourcePaths.every(isAbsolute)) throw new Error('Every source must be a local file.')
+  if (!isRenderSettings(request.settings)) throw new Error('The output settings are invalid.')
+  if (request.currentPlan != null && !isRenderPlan(request.currentPlan)) throw new Error('The current Edit Plan is invalid.')
+  return { ...request, renderId, sourcePaths, settings: request.settings, currentPlan: request.currentPlan ?? null } as EditPlanRequest
 }
 
 function isRenderPlan(value: unknown): value is RenderPlan {
   if (!value || typeof value !== 'object') return false
   const plan = value as Partial<RenderPlan>
   return (
-    plan.version === 1 &&
+    plan.version === 2 &&
     typeof plan.id === 'string' &&
     typeof plan.projectId === 'string' &&
     ['classic', 'smart'].includes(plan.selectionMode ?? '') &&
@@ -181,8 +216,14 @@ function isRenderPlan(value: unknown): value is RenderPlan {
     (plan.analysisVersion == null || typeof plan.analysisVersion === 'string') &&
     ['black', 'blurred'].includes(plan.fitBackground ?? '') &&
     ['low', 'medium', 'high'].includes(plan.blurStrength ?? '') &&
+    ['off', 'balanced', 'strong'].includes(plan.contentAwareness ?? '') &&
+    ['off', 'normal', 'strong'].includes(plan.speechCutProtection ?? '') &&
+    ['natural', 'beat-assisted', 'beat-strong'].includes(plan.cutSync ?? '') &&
+    ['center', 'smart-subject'].includes(plan.cropFocus ?? '') &&
     Number.isInteger(plan.previewVersion) &&
     (plan.previewVersion ?? 0) > 0 &&
+    Number.isInteger(plan.revision) &&
+    (plan.revision ?? 0) > 0 &&
     Array.isArray(plan.segments) &&
     plan.segments.length > 0 &&
     plan.segments.every((segment) =>
@@ -197,7 +238,11 @@ function isRenderPlan(value: unknown): value is RenderPlan {
       typeof segment.sourceDuration === 'number' &&
       segment.sourceDuration > 0 &&
       Math.abs(segment.end - (segment.start + segment.duration)) <= 0.02 &&
-      segment.end <= segment.sourceDuration + 0.01
+      segment.end <= segment.sourceDuration + 0.01 &&
+      ['classic', 'smart', 'manual'].includes(segment.selectionSource) &&
+      typeof segment.locked === 'boolean' &&
+      typeof segment.automaticStart === 'number' &&
+      typeof segment.automaticEnd === 'number'
     ) &&
     Boolean(plan.output) &&
     Number.isInteger(plan.output?.width) &&
@@ -357,6 +402,13 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.generatePreview, (event, value: unknown) => {
     const request = validatePreviewRequest(value)
     return generatePreview(request, (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.renderProgress, progress)
+    })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.createEditPlan, (event, value: unknown) => {
+    const request = validateEditPlanRequest(value)
+    return createEditPlan(request, (progress) => {
       if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.renderProgress, progress)
     }, new MediaPipePoseLiteProvider(event.sender))
   })

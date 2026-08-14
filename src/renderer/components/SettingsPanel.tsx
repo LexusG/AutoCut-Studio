@@ -88,7 +88,7 @@ export function SettingsPanel(): React.JSX.Element {
     <aside className="settings-panel" aria-label="Project configuration">
       <div className="settings-heading">
         <div><SlidersHorizontal size={17} /><h2>Project Settings</h2></div>
-        <span>PHASE 5</span>
+        <span>PHASE 6</span>
       </div>
 
       <div className="settings-scroll">
@@ -155,6 +155,15 @@ export function SettingsPanel(): React.JSX.Element {
                 <option value="fit">Fit</option>
               </select>
             </label>
+            {output.fitMode === 'crop' && (
+              <label className="stacked-setting">
+                <span>Crop focus</span>
+                <select value={output.cropFocus} onChange={(event) => updateOutput({ cropFocus: event.target.value as typeof output.cropFocus })}>
+                  <option value="center">Center</option>
+                  <option value="smart-subject">Smart Subject</option>
+                </select>
+              </label>
+            )}
             {output.fitMode === 'fit' && (
               <>
                 <label className="stacked-setting">
@@ -182,7 +191,11 @@ export function SettingsPanel(): React.JSX.Element {
           <div className="settings-details-body">
             <label className="stacked-setting">
               <span>Selection mode</span>
-              <select value={editing.selectionMode} onChange={(event) => updateEditing('selectionMode', event.target.value as typeof editing.selectionMode)}>
+              <select value={editing.selectionMode} onChange={(event) => {
+                const selectionMode = event.target.value as typeof editing.selectionMode
+                updateEditing('selectionMode', selectionMode)
+                if (selectionMode === 'smart' && output.cropFocus === 'center') updateOutput({ cropFocus: 'smart-subject' })
+              }}>
                 <option value="classic">Classic</option>
                 <option value="smart">Smart</option>
               </select>
@@ -203,9 +216,30 @@ export function SettingsPanel(): React.JSX.Element {
                   <ToggleSetting label="Prefer Motion" checked={editing.smartPreferences.preferMotion} onChange={(preferMotion) => updateEditing('smartPreferences', { ...editing.smartPreferences, preferMotion })} />
                   <ToggleSetting label="Prefer Clear Footage" checked={editing.smartPreferences.preferClearFootage} onChange={(preferClearFootage) => updateEditing('smartPreferences', { ...editing.smartPreferences, preferClearFootage })} />
                   <ToggleSetting label="Prefer Audible Moments" checked={editing.smartPreferences.preferAudibleMoments} onChange={(preferAudibleMoments) => updateEditing('smartPreferences', { ...editing.smartPreferences, preferAudibleMoments })} />
+                  <ToggleSetting label="Prefer Spoken Moments" checked={editing.smartPreferences.preferSpeech} onChange={(preferSpeech) => updateEditing('smartPreferences', { ...editing.smartPreferences, preferSpeech })} />
                 </details>
               </>
             )}
+            <label className="stacked-setting">
+              <span>Content awareness</span>
+              <select value={editing.contentAwareness} onChange={(event) => updateEditing('contentAwareness', event.target.value as typeof editing.contentAwareness)}>
+                <option value="off">Off</option><option value="balanced">Balanced</option><option value="strong">Strong</option>
+              </select>
+            </label>
+            {editing.contentAwareness !== 'off' && (
+              <label className="stacked-setting">
+                <span>Speech cut protection</span>
+                <select value={editing.speechCutProtection} onChange={(event) => updateEditing('speechCutProtection', event.target.value as typeof editing.speechCutProtection)}>
+                  <option value="off">Off</option><option value="normal">Normal</option><option value="strong">Strong</option>
+                </select>
+              </label>
+            )}
+            <label className="stacked-setting">
+              <span>Cut sync</span>
+              <select value={editing.cutSync} onChange={(event) => updateEditing('cutSync', event.target.value as typeof editing.cutSync)}>
+                <option value="natural">Natural</option><option value="beat-assisted">Beat Assisted</option><option value="beat-strong">Beat Strong</option>
+              </select>
+            </label>
             <label className="stacked-setting">
               <span>Editing pace</span>
               <select value={editing.pace} onChange={(event) => updateEditing('pace', event.target.value as 'slow' | 'normal' | 'fast')}>

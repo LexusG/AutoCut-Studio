@@ -35,4 +35,15 @@ describe('Phase 3 audio filters', () => {
     expect(filter).not.toContain('loudnorm=')
     expect(filter).toContain('volume=0.000')
   })
+
+  it('uses cached speech regions for predictable music ducking with level fallback available', () => {
+    const result = musicMixFilters(2, 'baseaudio', 12, {
+      ...DEFAULT_RENDER_SETTINGS.audio,
+      duckingTrigger: 'speech-detection'
+    }, true, [{ startTime: 2, endTime: 4, duration: 2 }])
+    const filters = result.filters.join(';')
+    expect(filters).toContain('between(t\\,2.000\\,4.000)')
+    expect(filters).toContain("0.30\\,1)")
+    expect(filters).not.toContain('sidechaincompress=')
+  })
 })

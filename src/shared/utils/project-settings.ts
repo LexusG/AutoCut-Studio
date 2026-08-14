@@ -58,7 +58,8 @@ export function createDefaultProjectSettings(): ProjectSettings {
       quality: 'balanced',
       fitMode: 'crop',
       fitBackground: 'black',
-      blurStrength: 'medium'
+      blurStrength: 'medium',
+      cropFocus: 'center'
     },
     editing: {
       arrangement: 'original-order',
@@ -73,9 +74,13 @@ export function createDefaultProjectSettings(): ProjectSettings {
         preferPeople: false,
         preferMotion: true,
         preferClearFootage: true,
-        preferAudibleMoments: true
+        preferAudibleMoments: true,
+        preferSpeech: false
       },
-      selectionSeed: 0
+      selectionSeed: 0,
+      contentAwareness: 'balanced',
+      speechCutProtection: 'normal',
+      cutSync: 'natural'
     },
     audio: {
       backgroundTrack: null,
@@ -97,7 +102,8 @@ export function createDefaultProjectSettings(): ProjectSettings {
         crossfadeDuration: 1.5
       },
       normalizationMode: 'fast',
-      finalMixNormalizationMode: 'off'
+      finalMixNormalizationMode: 'off',
+      duckingTrigger: 'automatic'
     },
     outputFilename: createOutputFilename('Untitled project', 'custom'),
     outputFilenameCustom: false,
@@ -246,7 +252,8 @@ export function toRenderSettings(settings: ProjectSettings): RenderSettings {
         ? settings.audio.soundtrack.crossfadeDuration
         : 0,
       normalizationMode: settings.audio.normalizationMode,
-      finalMixNormalizationMode: settings.audio.finalMixNormalizationMode
+      finalMixNormalizationMode: settings.audio.finalMixNormalizationMode,
+      duckingTrigger: settings.audio.duckingTrigger
     },
     personAnalysis: structuredClone(settings.personAnalysis),
     selectionMode: settings.editing.selectionMode,
@@ -254,7 +261,11 @@ export function toRenderSettings(settings: ProjectSettings): RenderSettings {
     smartPreferences: structuredClone(settings.editing.smartPreferences),
     selectionSeed: settings.editing.selectionSeed,
     fitBackground: settings.output.fitBackground,
-    blurStrength: settings.output.blurStrength
+    blurStrength: settings.output.blurStrength,
+    contentAwareness: settings.editing.contentAwareness,
+    speechCutProtection: settings.editing.speechCutProtection,
+    cutSync: settings.editing.cutSync,
+    cropFocus: settings.output.cropFocus
   }
 }
 
@@ -279,17 +290,19 @@ export function createProjectFile(
   settings: ProjectSettings,
   sourcePaths: string[],
   existing?: Pick<ProjectFile, 'id' | 'createdAt'>,
-  previewHistory: ProjectFile['previewHistory'] = []
+  previewHistory: ProjectFile['previewHistory'] = [],
+  editPlan: ProjectFile['editPlan'] = null
 ): ProjectFile {
   const now = new Date().toISOString()
   return {
-    version: 4,
+    version: 5,
     id: existing?.id ?? crypto.randomUUID(),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     settings: structuredClone(settings),
     sourcePaths: [...sourcePaths],
-    previewHistory: structuredClone(previewHistory)
+    previewHistory: structuredClone(previewHistory),
+    editPlan: editPlan ? structuredClone(editPlan) : null
   }
 }
 

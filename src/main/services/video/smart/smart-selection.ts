@@ -72,7 +72,24 @@ export async function applySmartSelection(
         ...segment,
         start: selected.start,
         end: Math.round((selected.start + segment.duration) * 1000) / 1000,
-        selectedCandidate: selected.metadata
+        automaticStart: selected.start,
+        automaticEnd: Math.round((selected.start + segment.duration) * 1000) / 1000,
+        selectionSource: 'smart' as const,
+        selectedCandidate: {
+          ...selected.metadata,
+          alternatives: [...candidates]
+            .filter((candidate) => candidate.metadata.candidateId !== selected.metadata.candidateId)
+            .sort((left, right) => right.metadata.scores.total - left.metadata.scores.total)
+            .slice(0, 3)
+            .map((candidate) => ({
+              candidateId: candidate.metadata.candidateId,
+              start: candidate.start,
+              end: candidate.end,
+              scores: candidate.metadata.scores,
+              reasons: candidate.metadata.reasons,
+              personAnalysis: candidate.metadata.personAnalysis
+            }))
+        }
       })
       if (logPath) {
         await appendFile(logPath, `${JSON.stringify({
@@ -93,7 +110,8 @@ export async function applySmartSelection(
           candidateId: 'classic-fallback',
           scores: {
             sharpness: 0, exposure: 0, motion: 0, stability: 0, audioActivity: 0,
-            personPresence: 0, sceneQuality: 0, blackFramePenalty: 0, duplicatePenalty: 0, total: 0
+            personPresence: 0, sceneQuality: 0, blackFramePenalty: 0, duplicatePenalty: 0,
+            speechActivity: 0, speechBoundaryQuality: 0, speechCompleteness: 0, total: 0
           },
           reasons: ['Classic selection used after analysis failure'],
           analysisFallback: true

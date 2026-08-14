@@ -1,10 +1,11 @@
-import { ArrowLeft, Play, Save } from 'lucide-react'
+import { ArrowLeft, ClipboardList, Play, Save, Sparkles } from 'lucide-react'
 import { BrandMark } from '../components/BrandMark'
 import { FfmpegNotice } from '../components/FfmpegNotice'
 import { MediaPanel } from '../components/MediaPanel'
 import { PreviewPanel } from '../components/PreviewPanel'
 import { RenderDialog } from '../components/RenderDialog'
 import { SettingsPanel } from '../components/SettingsPanel'
+import { EditPlanPanel } from '../components/EditPlanPanel'
 import { useVideoRender } from '../hooks/use-video-render'
 import { useProjectFiles } from '../hooks/use-project-files'
 import { useAppStore } from '../stores/app-store'
@@ -17,7 +18,10 @@ export function EditorPage(): React.JSX.Element {
   const clipCount = useAppStore((state) => state.clips.length)
   const ffmpegStatus = useAppStore((state) => state.ffmpegStatus)
   const isRendering = useAppStore((state) => state.renderStatus === 'rendering')
-  const { generatePreview, cancel } = useVideoRender()
+  const editPlan = useAppStore((state) => state.editPlan)
+  const editPlanOutdated = useAppStore((state) => state.editPlanOutdated)
+  const showEditPlan = useAppStore((state) => state.showEditPlan)
+  const { analyzeEditPlan, generatePreview, cancel } = useVideoRender()
   const { save, busy: projectBusy, message: projectMessage, error: projectError } = useProjectFiles()
 
   return (
@@ -46,13 +50,15 @@ export function EditorPage(): React.JSX.Element {
             <Save size={16} /> Save Project
           </button>
           <button
-            className="button button-primary"
+            className="button button-secondary"
             type="button"
             disabled={clipCount === 0 || isRendering || !ffmpegStatus?.ready}
-            onClick={() => void generatePreview()}
+            onClick={() => void analyzeEditPlan(Boolean(editPlan))}
           >
-            <Play size={16} fill="currentColor" /> Generate Preview
+            <Sparkles size={16} /> {editPlan ? 'Update Edit Plan' : 'Create Edit Plan'}
           </button>
+          {editPlan && <button className="button button-secondary" type="button" onClick={showEditPlan}><ClipboardList size={16} /> Review Plan</button>}
+          <button className="button button-primary" type="button" disabled={!editPlan || editPlanOutdated || isRendering} onClick={() => void generatePreview()}><Play size={16} fill="currentColor" /> Generate Preview</button>
         </div>
       </header>
 
@@ -61,6 +67,7 @@ export function EditorPage(): React.JSX.Element {
         <PreviewPanel />
         <SettingsPanel />
       </div>
+      <EditPlanPanel />
       <RenderDialog onCancel={cancel} />
     </main>
   )

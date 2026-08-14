@@ -15,6 +15,7 @@ const api: AutoCutApi = {
   removeRecentProject: (path) => ipcRenderer.invoke(IPC_CHANNELS.removeRecentProject, path),
   chooseOutputPath: (suggestedName) =>
     ipcRenderer.invoke(IPC_CHANNELS.chooseOutput, suggestedName),
+  createEditPlan: (request) => ipcRenderer.invoke(IPC_CHANNELS.createEditPlan, request),
   generatePreview: (request) => ipcRenderer.invoke(IPC_CHANNELS.generatePreview, request),
   exportApprovedPreview: (request) =>
     ipcRenderer.invoke(IPC_CHANNELS.exportApprovedPreview, request),

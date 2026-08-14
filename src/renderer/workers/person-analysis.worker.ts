@@ -57,18 +57,37 @@ function landmarkConfidence(landmarks: NormalizedLandmark[]): number {
 async function analyze(request: PersonAnalysisRequest): Promise<PersonAnalysisSummary> {
   const landmarker = await getLandmarker()
   const confidences: number[] = []
+  const focusPoints: NonNullable<PersonAnalysisSummary['focusPoints']> = []
   for (const frame of request.frames) {
     if (cancelled.has(request.requestId)) throw new Error('Person analysis cancelled.')
     const response = await fetch(frame.dataUrl)
     const bitmap = await createImageBitmap(await response.blob())
     try {
       const result = landmarker.detect(bitmap)
-      confidences.push(Math.max(0, ...result.landmarks.map(landmarkConfidence)))
+      const confidence = Math.max(0, ...result.landmarks.map(landmarkConfidence))
+      confidences.push(confidence)
+      const visible = result.landmarks.flat().filter((landmark) => (landmark.visibility ?? 0) >= 0.45)
+      if (visible.length > 0) {
+        const xs = visible.map((landmark) => landmark.x)
+        const ys = visible.map((landmark) => landmark.y)
+        const left = Math.max(0, Math.min(...xs))
+        const right = Math.min(1, Math.max(...xs))
+        const top = Math.max(0, Math.min(...ys))
+        const bottom = Math.min(1, Math.max(...ys))
+        focusPoints.push({
+          timestamp: frame.timestamp,
+          x: (left + right) / 2,
+          y: (top + bottom) / 2,
+          confidence,
+          subjectWidth: right - left,
+          subjectHeight: bottom - top
+        })
+      }
     } finally {
       bitmap.close()
     }
   }
-  return aggregatePersonPresence(confidences, request.configuration)
+  return { ...aggregatePersonPresence(confidences, request.configuration), focusPoints }
 }
 
 context.onmessage = (event: MessageEvent<WorkerMessage>): void => {

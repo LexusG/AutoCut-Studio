@@ -7,11 +7,13 @@ import type {
   RenderPlanSegment,
   RenderQuality,
   RenderStage,
-  TransitionPreference
+  TransitionPreference,
+  TimeRegion
 } from '@shared/types'
 import { ProcessExecutionError, runProcess } from '../ffmpeg/process'
 import { musicMixFilters, sourceAudioFilter } from './audio-filters'
 import { prepareSoundtrack } from './soundtrack-processor'
+import { smartCropFilter } from './content/subject-crop'
 import {
   measureLoudness,
   normalizeFinalMixAudio,
@@ -80,7 +82,11 @@ function createProgressParser(duration: number, onFraction: (fraction: number) =
   }
 }
 
-export function videoFilterGraph(plan: RenderPlan, dimensions: RenderDimensions): string {
+export function videoFilterGraph(
+  plan: RenderPlan,
+  dimensions: RenderDimensions,
+  segment?: RenderPlanSegment
+): string {
   const { width, height } = dimensions
   const finish = `fps=${plan.output.frameRate},setsar=1,setpts=PTS-STARTPTS,format=yuv420p`
   if (plan.output.fitMode === 'fit' && plan.fitBackground === 'blurred') {
@@ -94,7 +100,7 @@ export function videoFilterGraph(plan: RenderPlan, dimensions: RenderDimensions)
     ].join(';')
   }
   const scale = plan.output.fitMode === 'crop'
-    ? `scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height}`
+    ? `scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,${smartCropFilter(segment?.cropPlan?.track, segment?.start ?? 0, width, height)}`
     : `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`
   return `[0:v:0]${scale},${finish}[video]`
 }
@@ -152,7 +158,7 @@ async function normalizeSegment(
     }
   }
   const filters = [
-    videoFilterGraph(options.plan, dimensions),
+    videoFilterGraph(options.plan, dimensions, segment),
     sourceAudioFilter(audioLabel, segment.duration, {
       ...options.plan.audio,
       normalizeClipAudio: useSourceAudio && options.plan.audio.normalizeClipAudio,
@@ -268,7 +274,8 @@ function compositionArgs(
       transition.audio,
       options.plan.expectedDuration,
       soundtrackPath ? { ...options.plan.audio, musicVolume: 100 } : options.plan.audio,
-      ducking
+      ducking,
+      soundtrackSpeechRegions(options.plan)
     )
     filters.push(...music.filters)
     audioLabel = music.outputLabel
@@ -302,6 +309,27 @@ function compositionArgs(
     mixPath
   )
   return args
+}
+
+function soundtrackSpeechRegions(plan: RenderPlan): TimeRegion[] {
+  const regions: TimeRegion[] = []
+  let timeline = 0
+  for (const segment of plan.segments) {
+    const speech = segment.selectedCandidate?.speechAnalysis
+    if (speech) {
+      for (const item of speech.speechRegions) {
+        const overlapStart = Math.max(segment.start, item.startTime)
+        const overlapEnd = Math.min(segment.end, item.endTime)
+        if (overlapEnd > overlapStart) {
+          const startTime = timeline + overlapStart - segment.start
+          const endTime = timeline + overlapEnd - segment.start
+          regions.push({ startTime, endTime, duration: endTime - startTime })
+        }
+      }
+    }
+    timeline += segment.duration - (segment.transitionToNext?.duration ?? 0)
+  }
+  return regions
 }
 
 export async function executeRender(options: ExecuteRenderOptions): Promise<{

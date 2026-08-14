@@ -115,6 +115,9 @@ export function AudioPanel(): React.JSX.Element {
         <label className="stacked-setting"><span>Audio normalization</span><select value={audio.normalizationMode} onChange={(event) => updateAudio('normalizationMode', event.target.value as typeof audio.normalizationMode)}><option value="off">Off</option><option value="fast">Fast</option><option value="accurate">Accurate</option></select></label>
         <label className="stacked-setting"><span>Final mix normalization</span><select value={audio.finalMixNormalizationMode} onChange={(event) => updateAudio('finalMixNormalizationMode', event.target.value as typeof audio.finalMixNormalizationMode)}><option value="off">Off</option><option value="fast">Fast</option><option value="accurate">Accurate</option></select></label>
         <ToggleRow label="Lower Music During Clip Audio" checked={audio.duckMusicDuringClipAudio} onChange={(value) => updateAudio('duckMusicDuringClipAudio', value)} />
+        {audio.duckMusicDuringClipAudio && (
+          <label className="stacked-setting"><span>Ducking trigger</span><select value={audio.duckingTrigger} onChange={(event) => updateAudio('duckingTrigger', event.target.value as typeof audio.duckingTrigger)}><option value="automatic">Automatic</option><option value="audio-level">Audio Level</option><option value="speech-detection">Speech Detection</option></select></label>
+        )}
       </div>
     </details>
   )

@@ -26,7 +26,7 @@ export function FinalPreviewPage(): React.JSX.Element {
   const backToEdit = useAppStore((state) => state.backToEdit)
   const startProject = useAppStore((state) => state.startProject)
   const isRendering = useAppStore((state) => state.renderStatus === 'rendering')
-  const { generatePreview, approveAndExport, cancel } = useVideoRender()
+  const { analyzeEditPlan, approveAndExport, cancel } = useVideoRender()
 
   if (!preview) {
     return <></>
@@ -77,7 +77,7 @@ export function FinalPreviewPage(): React.JSX.Element {
             <button className="button button-secondary" type="button" onClick={backToEdit} disabled={isRendering}>
               <RotateCcw size={16} /> Back to Edit
             </button>
-            <button className="button button-secondary" type="button" onClick={() => void generatePreview(true)} disabled={isRendering}>
+            <button className="button button-secondary" type="button" onClick={() => { backToEdit(); void analyzeEditPlan(true) }} disabled={isRendering}>
               <RefreshCw size={16} /> Regenerate
             </button>
             <button className="button button-primary" type="button" onClick={() => void approveAndExport()} disabled={isRendering || outdated}>

@@ -1,4 +1,4 @@
-import type { AudioTrack, PreviewVersion, ProjectFile, ProjectSettings, SoundtrackTrack } from '../types'
+import type { AudioTrack, PreviewVersion, ProjectFile, ProjectSettings, RenderPlan, SoundtrackTrack } from '../types'
 import { createDefaultProjectSettings } from './project-settings'
 
 function migrateLegacyTrack(track: AudioTrack, settings: ProjectSettings): SoundtrackTrack {
@@ -12,11 +12,15 @@ function migrateLegacyTrack(track: AudioTrack, settings: ProjectSettings): Sound
   }
 }
 
-function hydrateSettings(value: unknown): ProjectSettings {
+function hydrateSettings(value: unknown, legacy = false): ProjectSettings {
   if (!value || typeof value !== 'object') throw new Error('Project settings are missing.')
   const raw = value as Partial<ProjectSettings>
   const defaults = createDefaultProjectSettings()
-  const output = { ...defaults.output, ...(raw.output ?? {}) }
+  const output = {
+    ...defaults.output,
+    ...(raw.output ?? {}),
+    cropFocus: legacy ? 'center' : (raw.output?.cropFocus ?? defaults.output.cropFocus)
+  }
   const editing = {
     ...defaults.editing,
     ...(raw.editing ?? {}),
@@ -26,8 +30,12 @@ function hydrateSettings(value: unknown): ProjectSettings {
     },
     smartPreferences: {
       ...defaults.editing.smartPreferences,
-      ...(raw.editing?.smartPreferences ?? {})
-    }
+      ...(raw.editing?.smartPreferences ?? {}),
+      ...(legacy ? { preferSpeech: false } : {})
+    },
+    contentAwareness: legacy ? 'off' : (raw.editing?.contentAwareness ?? defaults.editing.contentAwareness),
+    speechCutProtection: legacy ? 'off' : (raw.editing?.speechCutProtection ?? defaults.editing.speechCutProtection),
+    cutSync: legacy ? 'natural' : (raw.editing?.cutSync ?? 'natural')
   }
   const legacyAudio = raw.audio as (Partial<ProjectSettings['audio']> & { normalizeFinalMix?: boolean }) | undefined
   const audio = {
@@ -67,7 +75,33 @@ function hydrateSettings(value: unknown): ProjectSettings {
     ?? (settings.audio.normalizeClipAudio ? 'fast' : 'off')
   settings.audio.finalMixNormalizationMode = raw.audio?.finalMixNormalizationMode
     ?? (legacyAudio?.normalizeFinalMix === true ? 'fast' : 'off')
+  settings.audio.duckingTrigger = raw.audio?.duckingTrigger ?? 'automatic'
   return settings
+}
+
+function hydrateRenderPlan(value: unknown): RenderPlan | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<RenderPlan> & { version?: number }
+  if (!Array.isArray(raw.segments) || !raw.output || !raw.audio || typeof raw.id !== 'string') return null
+  return {
+    ...raw,
+    version: 2,
+    revision: Number.isInteger(raw.revision) && (raw.revision ?? 0) > 0 ? raw.revision! : 1,
+    contentAwareness: raw.contentAwareness ?? 'off',
+    speechCutProtection: raw.speechCutProtection ?? 'off',
+    cutSync: raw.cutSync ?? 'natural',
+    cropFocus: raw.cropFocus ?? 'center',
+    beatAnalysis: raw.beatAnalysis ?? null,
+    audio: { ...raw.audio, duckingTrigger: raw.audio.duckingTrigger ?? 'automatic' },
+    segments: raw.segments.map((segment) => ({
+      ...segment,
+      selectionSource: segment.selectionSource ?? (segment.selectedCandidate ? 'smart' : 'classic'),
+      locked: segment.locked ?? false,
+      automaticStart: segment.automaticStart ?? segment.start,
+      automaticEnd: segment.automaticEnd ?? segment.end,
+      cropPlan: segment.cropPlan ?? null
+    }))
+  } as RenderPlan
 }
 
 function clearSettingsMediaUrls(settings: ProjectSettings): ProjectSettings {
@@ -112,6 +146,7 @@ function hydratePreviewVersion(value: unknown, projectId: string): PreviewVersio
   const raw = value as Partial<PreviewVersion>
   const artifact = raw.artifact
   const plan = artifact?.plan
+  const legacy = (plan as { version?: number } | undefined)?.version !== 2
   if (
     typeof raw.id !== 'string' ||
     !Number.isInteger(raw.versionNumber) ||
@@ -155,9 +190,9 @@ function hydratePreviewVersion(value: unknown, projectId: string): PreviewVersio
       artifact: {
         ...artifact,
         plan: {
-          ...plan,
+          ...hydrateRenderPlan(plan)!,
           audio: {
-            ...plan.audio,
+            ...hydrateRenderPlan(plan)!.audio,
             finalMixNormalizationMode: plan.audio.finalMixNormalizationMode
               ?? ((plan.audio as { normalizeFinalMix?: boolean }).normalizeFinalMix ? 'fast' : 'off')
           },
@@ -185,7 +220,7 @@ function hydratePreviewVersion(value: unknown, projectId: string): PreviewVersio
       pace: ['slow', 'normal', 'fast'].includes(raw.pace ?? '') ? raw.pace! : plan.pace,
       selectionMode: raw.selectionMode === 'smart' ? 'smart' : 'classic',
       targetDuration: typeof raw.targetDuration === 'number' ? raw.targetDuration : null,
-      settingsSnapshot: hydrateSettings(raw.settingsSnapshot)
+      settingsSnapshot: hydrateSettings(raw.settingsSnapshot, legacy)
     } as PreviewVersion
   } catch {
     return null
@@ -210,25 +245,26 @@ export function parseProjectFile(contents: string): ProjectFile {
   }
   if (!parsed || typeof parsed !== 'object') throw new Error('The project file is invalid.')
   const raw = parsed as Record<string, unknown>
-  if (raw.version !== 2 && raw.version !== 3 && raw.version !== 4) {
+  if (raw.version !== 2 && raw.version !== 3 && raw.version !== 4 && raw.version !== 5) {
     throw new Error('This project version is not supported.')
   }
   if (typeof raw.id !== 'string' || !raw.id) throw new Error('The project identifier is missing.')
   if (!Array.isArray(raw.sourcePaths) || !raw.sourcePaths.every((path) => typeof path === 'string')) {
     throw new Error('The project source list is invalid.')
   }
-  const previewHistory = (raw.version === 3 || raw.version === 4) && Array.isArray(raw.previewHistory)
+  const previewHistory = (raw.version === 3 || raw.version === 4 || raw.version === 5) && Array.isArray(raw.previewHistory)
     ? raw.previewHistory
         .map((value) => hydratePreviewVersion(value, raw.id as string))
         .filter((item): item is PreviewVersion => item !== null)
     : []
   return {
-    version: 4,
+    version: 5,
     id: raw.id,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString(),
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
-    settings: hydrateSettings(raw.settings),
+    settings: hydrateSettings(raw.settings, raw.version !== 5),
     sourcePaths: raw.sourcePaths,
-    previewHistory
+    previewHistory,
+    editPlan: raw.version === 5 ? hydrateRenderPlan(raw.editPlan) : null
   }
 }

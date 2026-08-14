@@ -10,6 +10,8 @@ import type {
 } from './project'
 import type {
   ExportRenderRequest,
+  EditPlanOutcome,
+  EditPlanRequest,
   PreviewRenderOutcome,
   PreviewRenderRequest,
   RenderArtifact,
@@ -54,6 +56,7 @@ export interface AutoCutApi {
   getRecentProjects: () => Promise<RecentProject[]>
   removeRecentProject: (path: string) => Promise<RecentProject[]>
   chooseOutputPath: (suggestedName: string) => Promise<string | null>
+  createEditPlan: (request: EditPlanRequest) => Promise<EditPlanOutcome>
   generatePreview: (request: PreviewRenderRequest) => Promise<PreviewRenderOutcome>
   exportApprovedPreview: (request: ExportRenderRequest) => Promise<RenderArtifact>
   cancelRender: (renderId: string) => Promise<boolean>
@@ -86,6 +89,7 @@ export const IPC_CHANNELS = {
   recentProjects: 'projects:recent',
   removeRecentProject: 'projects:remove-recent',
   chooseOutput: 'files:choose-output',
+  createEditPlan: 'video:create-edit-plan',
   generatePreview: 'video:generate-preview',
   exportApprovedPreview: 'video:export-approved-preview',
   cancelRender: 'video:cancel-render',

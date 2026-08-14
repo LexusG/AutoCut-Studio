@@ -13,6 +13,65 @@ export type FitBackgroundMode = 'black' | 'blurred'
 export type BlurStrength = 'low' | 'medium' | 'high'
 export type AudioNormalizationMode = 'off' | 'fast' | 'accurate'
 export type FinalMixNormalizationMode = AudioNormalizationMode
+export type ContentAwarenessMode = 'off' | 'balanced' | 'strong'
+export type SpeechCutProtection = 'off' | 'normal' | 'strong'
+export type CutSyncMode = 'natural' | 'beat-assisted' | 'beat-strong'
+export type CropFocusMode = 'center' | 'smart-subject'
+export type DuckingTrigger = 'audio-level' | 'speech-detection' | 'automatic'
+export type SegmentSelectionSource = 'classic' | 'smart' | 'manual'
+
+export interface TimeRegion {
+  startTime: number
+  endTime: number
+  duration: number
+}
+
+export interface SpeechAnalysisResult {
+  speechRegions: TimeRegion[]
+  silenceRegions: TimeRegion[]
+  speechRatio: number
+  confidence: number | null
+  analyzerVersion: string
+  warnings: string[]
+  noAudioStream: boolean
+}
+
+export interface BeatMarker {
+  timestamp: number
+  strength: number
+  strong: boolean
+  sourceTrackId: string
+}
+
+export interface BeatAnalysisResult {
+  bpm: number | null
+  beats: BeatMarker[]
+  confidence: number
+  analyzedDuration: number
+  analyzerVersion: string
+  warnings: string[]
+}
+
+export interface SubjectFocusPoint {
+  timestamp: number
+  x: number
+  y: number
+  confidence: number
+  subjectWidth: number
+  subjectHeight: number
+}
+
+export interface SubjectTrack {
+  points: SubjectFocusPoint[]
+  confidence: number
+  fallback: boolean
+  reason: string
+}
+
+export interface SegmentCropPlan {
+  focusMode: CropFocusMode
+  track: SubjectTrack
+}
 
 export interface PersonAnalysisConfiguration {
   enabled: boolean
@@ -35,6 +94,7 @@ export interface PersonAnalysisSummary {
   modelVersion: string
   analyzerVersion: string
   warnings: string[]
+  focusPoints?: SubjectFocusPoint[]
 }
 
 export interface LoudnessVerification {
@@ -82,6 +142,7 @@ export interface RenderAudioSettings {
   soundtrackCrossfade: number
   normalizationMode: AudioNormalizationMode
   finalMixNormalizationMode: FinalMixNormalizationMode
+  duckingTrigger: DuckingTrigger
 }
 
 export interface RenderSettings {
@@ -108,10 +169,15 @@ export interface RenderSettings {
     preferMotion: boolean
     preferClearFootage: boolean
     preferAudibleMoments: boolean
+    preferSpeech: boolean
   }
   selectionSeed: number
   fitBackground: FitBackgroundMode
   blurStrength: BlurStrength
+  contentAwareness: ContentAwarenessMode
+  speechCutProtection: SpeechCutProtection
+  cutSync: CutSyncMode
+  cropFocus: CropFocusMode
 }
 
 export interface CandidateScores {
@@ -124,7 +190,19 @@ export interface CandidateScores {
   sceneQuality: number
   blackFramePenalty: number
   duplicatePenalty: number
+  speechActivity: number
+  speechBoundaryQuality: number
+  speechCompleteness: number
   total: number
+}
+
+export interface AlternativeCandidate {
+  candidateId: string
+  start: number
+  end: number
+  scores: CandidateScores
+  reasons: string[]
+  personAnalysis?: PersonAnalysisSummary
 }
 
 export interface SelectedCandidateMetadata {
@@ -133,6 +211,9 @@ export interface SelectedCandidateMetadata {
   reasons: string[]
   analysisFallback: boolean
   personAnalysis?: PersonAnalysisSummary
+  speechAnalysis?: SpeechAnalysisResult
+  alternatives?: AlternativeCandidate[]
+  decisionNotes?: string[]
 }
 
 export interface RenderPlanTransition {
@@ -155,6 +236,11 @@ export interface RenderPlanSegment {
   sourceRotation: number
   transitionToNext: RenderPlanTransition | null
   selectedCandidate: SelectedCandidateMetadata | null
+  selectionSource: SegmentSelectionSource
+  locked: boolean
+  automaticStart: number
+  automaticEnd: number
+  cropPlan: SegmentCropPlan | null
 }
 
 export interface RenderPlanOutput {
@@ -167,7 +253,7 @@ export interface RenderPlanOutput {
 }
 
 export interface RenderPlan {
-  version: 1
+  version: 2
   id: string
   projectId: string
   generation: number
@@ -193,7 +279,27 @@ export interface RenderPlan {
   fitBackground: FitBackgroundMode
   blurStrength: BlurStrength
   previewVersion: number
+  revision: number
+  contentAwareness: ContentAwarenessMode
+  speechCutProtection: SpeechCutProtection
+  cutSync: CutSyncMode
+  cropFocus: CropFocusMode
+  beatAnalysis: BeatAnalysisResult | null
 }
+
+export interface EditPlanRequest {
+  renderId: string
+  projectId: string
+  generation: number
+  sourcePaths: string[]
+  settingsFingerprint: string
+  settings: RenderSettings
+  currentPlan: RenderPlan | null
+}
+
+export type EditPlanOutcome =
+  | { success: true; plan: RenderPlan }
+  | { success: false; issue: DurationConstraintIssue }
 
 export interface PreviewRenderRequest {
   renderId: string
@@ -202,6 +308,7 @@ export interface PreviewRenderRequest {
   sourcePaths: string[]
   settingsFingerprint: string
   settings: RenderSettings
+  plan: RenderPlan
 }
 
 export interface ExportRenderRequest {
@@ -217,6 +324,9 @@ export type RenderStage =
   | 'Analyzing clips'
   | 'Detecting scenes'
   | 'Detecting people'
+  | 'Detecting speech'
+  | 'Analyzing music'
+  | 'Planning smart crop'
   | 'Evaluating candidate segments'
   | 'Planning edit'
   | 'Preparing clips'
@@ -304,7 +414,8 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
     soundtrackTracks: [],
     soundtrackCrossfade: 1.5,
     normalizationMode: 'fast',
-    finalMixNormalizationMode: 'off'
+    finalMixNormalizationMode: 'off',
+    duckingTrigger: 'automatic'
   },
   personAnalysis: {
     enabled: true,
@@ -319,11 +430,16 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
     preferPeople: false,
     preferMotion: true,
     preferClearFootage: true,
-    preferAudibleMoments: true
+    preferAudibleMoments: true,
+    preferSpeech: false
   },
   selectionSeed: 0,
   fitBackground: 'black',
-  blurStrength: 'medium'
+  blurStrength: 'medium',
+  contentAwareness: 'balanced',
+  speechCutProtection: 'normal',
+  cutSync: 'natural',
+  cropFocus: 'center'
 }
 
 // Compatibility alias for Phase 1/2 callers.

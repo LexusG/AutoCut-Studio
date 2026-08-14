@@ -33,6 +33,9 @@ export function validateProjectSettings(
   if (!['low', 'medium', 'high'].includes(settings.output.blurStrength)) {
     add('blur-strength', 'error', 'Choose a valid blurred background strength.')
   }
+  if (!['center', 'smart-subject'].includes(settings.output.cropFocus)) {
+    add('crop-focus', 'error', 'Choose Center or Smart Subject crop focus.')
+  }
   if (settings.presetId !== 'custom' && !getPreset(settings.presetId)) {
     add('preset', 'error', 'The selected platform preset is unavailable.')
   }
@@ -50,6 +53,15 @@ export function validateProjectSettings(
   }
   if (!['fast', 'balanced', 'detailed'].includes(settings.editing.analysisQuality)) {
     add('analysis-quality', 'error', 'Choose a valid Smart analysis quality.')
+  }
+  if (!['off', 'balanced', 'strong'].includes(settings.editing.contentAwareness)) {
+    add('content-awareness', 'error', 'Choose a valid Content Awareness mode.')
+  }
+  if (!['off', 'normal', 'strong'].includes(settings.editing.speechCutProtection)) {
+    add('speech-protection', 'error', 'Choose a valid Speech Cut Protection mode.')
+  }
+  if (!['natural', 'beat-assisted', 'beat-strong'].includes(settings.editing.cutSync)) {
+    add('cut-sync', 'error', 'Choose a valid Cut Sync mode.')
   }
   if (settings.editing.useEveryClip && targetSeconds && clipCount > 0) {
     const approximateMinimum = clipCount * minimumSecondsPerClip[settings.editing.pace]
@@ -84,6 +96,9 @@ export function validateProjectSettings(
   }
   if (!['off', 'fast', 'accurate'].includes(audio.normalizationMode)) {
     add('normalization-mode', 'error', 'Choose Off, Fast, or Accurate normalization.')
+  }
+  if (!['audio-level', 'speech-detection', 'automatic'].includes(audio.duckingTrigger)) {
+    add('ducking-trigger', 'error', 'Choose a valid music ducking trigger.')
   }
   audio.soundtrack.tracks.forEach((track, index) => {
     if (track.missing) add(`soundtrack-missing-${index}`, 'warning', `${track.filename} is missing.`)
