@@ -3,6 +3,9 @@ import { BrandMark } from '../components/BrandMark'
 import { FfmpegNotice } from '../components/FfmpegNotice'
 import { MediaPanel } from '../components/MediaPanel'
 import { PreviewPanel } from '../components/PreviewPanel'
+import { RenderDialog } from '../components/RenderDialog'
+import { SettingsPanel } from '../components/SettingsPanel'
+import { useVideoRender } from '../hooks/use-video-render'
 import { useAppStore } from '../stores/app-store'
 
 export function EditorPage(): React.JSX.Element {
@@ -10,6 +13,8 @@ export function EditorPage(): React.JSX.Element {
   const projectName = useAppStore((state) => state.projectName)
   const clipCount = useAppStore((state) => state.clips.length)
   const ffmpegStatus = useAppStore((state) => state.ffmpegStatus)
+  const isRendering = useAppStore((state) => state.renderStatus === 'rendering')
+  const { generate, cancel } = useVideoRender()
 
   return (
     <main className="editor-page">
@@ -27,7 +32,12 @@ export function EditorPage(): React.JSX.Element {
         </div>
         <div className="editor-header-right">
           <FfmpegNotice status={ffmpegStatus} />
-          <button className="button button-primary" type="button" disabled={clipCount === 0} title="Available after Phase 3">
+          <button
+            className="button button-primary"
+            type="button"
+            disabled={clipCount === 0 || isRendering || !ffmpegStatus?.ready}
+            onClick={() => void generate()}
+          >
             <Play size={16} fill="currentColor" /> Generate Video
           </button>
         </div>
@@ -36,7 +46,9 @@ export function EditorPage(): React.JSX.Element {
       <div className="editor-workspace">
         <MediaPanel />
         <PreviewPanel />
+        <SettingsPanel />
       </div>
+      <RenderDialog onCancel={cancel} />
     </main>
   )
 }

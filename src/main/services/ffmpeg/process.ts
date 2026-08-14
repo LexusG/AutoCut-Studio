@@ -17,7 +17,16 @@ export interface ProcessOutput {
   stderr: string
 }
 
-export function runProcess(command: string, args: string[]): Promise<ProcessOutput> {
+export interface ProcessOptions {
+  signal?: AbortSignal
+  onStdout?: (text: string) => void
+}
+
+export function runProcess(
+  command: string,
+  args: string[],
+  options: ProcessOptions = {}
+): Promise<ProcessOutput> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { windowsHide: true })
     const stdout: Buffer[] = []
@@ -32,7 +41,22 @@ export function runProcess(command: string, args: string[]): Promise<ProcessOutp
       capturedBytes += captured.byteLength
     }
 
-    child.stdout.on('data', (chunk: Buffer) => capture(stdout, chunk))
+    let forceKillTimer: NodeJS.Timeout | null = null
+    const abort = (): void => {
+      if (child.exitCode != null || child.killed) return
+      child.kill('SIGTERM')
+      forceKillTimer = setTimeout(() => {
+        if (child.exitCode == null) child.kill('SIGKILL')
+      }, 2_000)
+    }
+
+    if (options.signal?.aborted) abort()
+    options.signal?.addEventListener('abort', abort, { once: true })
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      capture(stdout, chunk)
+      options.onStdout?.(chunk.toString('utf8'))
+    })
     child.stderr.on('data', (chunk: Buffer) => capture(stderr, chunk))
 
     child.once('error', (error) => {
@@ -40,6 +64,8 @@ export function runProcess(command: string, args: string[]): Promise<ProcessOutp
     })
 
     child.once('close', (code, signal) => {
+      options.signal?.removeEventListener('abort', abort)
+      if (forceKillTimer) clearTimeout(forceKillTimer)
       const output = {
         stdout: Buffer.concat(stdout).toString('utf8'),
         stderr: Buffer.concat(stderr).toString('utf8')

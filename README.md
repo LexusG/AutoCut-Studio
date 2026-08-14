@@ -1,10 +1,10 @@
 # AutoCut Studio
 
-AutoCut Studio is a local-first Linux desktop application for turning a group of source clips into a finished video. This repository currently contains the functional Phase 1 foundation: media import, metadata analysis, thumbnail generation, clip organization, and source preview.
+AutoCut Studio is a local-first Linux desktop application for turning a group of source clips into a finished MP4. The current MVP imports and analyzes footage, selects useful middle sections, normalizes mixed source formats, guarantees every imported clip contributes footage, and renders the result entirely through local FFmpeg processes.
 
 All footage remains on the local computer. Electron owns filesystem access and FFmpeg execution; the React renderer only communicates through a small, typed preload API.
 
-## Phase 1 features
+## Current features
 
 - Electron, React, TypeScript, Vite, Tailwind CSS, Zustand, and Lucide icons
 - Secure Electron window with context isolation, sandboxing, and Node integration disabled
@@ -15,6 +15,15 @@ All footage remains on the local computer. Electron owns filesystem access and F
 - Cached mid-clip thumbnails generated with FFmpeg
 - Reorderable clip cards, duplicate prevention, removal, and detailed import errors
 - Local source-video preview through an allowlisted custom Electron protocol
+- Original-order, automatic, and random clip arrangements
+- Slow, normal, and fast deterministic middle-section trimming
+- Original, 16:9, 9:16, 1:1, and 4:5 output ratios
+- 720p/1080p output, Auto/24/30/60 FPS, Crop to Fill/Fit, and quality controls
+- Mixed-orientation, mixed-frame-rate, and mixed-audio normalization
+- Default-on **Use Every Clip** guarantee with all-or-fail rendering
+- H.264/AAC MP4 generation to a user-selected path
+- Real render stages and FFmpeg progress with safe cancellation and cleanup
+- Finished-video preview inside the app
 
 ## Prerequisites
 
@@ -63,7 +72,7 @@ npm run preview
 
 The smoke test requires FFmpeg and a graphical Linux session or `xvfb-run`. In a headless shell, run `xvfb-run -a npm run test:smoke`.
 
-AppImage packaging will be configured after the core render pipeline is implemented, as specified for the later packaging phase.
+AppImage packaging will be configured in the later packaging phase.
 
 ## Project structure
 
@@ -74,7 +83,7 @@ src/
     services/
       ffmpeg/            Binary detection and child-process execution
       filesystem/        Guarded local-media protocol
-      video/             FFprobe import and thumbnail services
+      video/             Import, planning, normalization, and render services
   preload/               Narrow contextBridge API
   renderer/
     components/          Editor UI components
@@ -110,6 +119,6 @@ Expand the import error in the Media panel. Confirm the source still exists, its
 
 Run `npm run build` first to expose TypeScript or bundling errors. On minimal Linux installations, Electron may also require standard desktop libraries supplied by the distribution's Chromium/Electron packages.
 
-## Next: Phase 2
+## Next: Phase 4
 
-Phase 2 adds output aspect ratio and resolution controls, editing pace, and the default-on **Use Every Clip** rule. Automatic trimming, normalization, and MP4 generation intentionally begin in Phase 3.
+The next processing phase adds transitions, loudness normalization, and background-music mixing. Project persistence, recent projects, richer error recovery, and Linux packaging follow in subsequent phases.
