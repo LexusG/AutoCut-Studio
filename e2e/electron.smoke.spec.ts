@@ -120,6 +120,13 @@ test('completes the realistic Phase 5 ML, audio, and persistent-preview workflow
     await page.getByLabel('Transition preference').selectOption('crossfade')
     await page.getByLabel('Transition duration').selectOption('0.25')
     await page.getByLabel('Output quality').selectOption('draft')
+    const outputFilename = page.getByLabel('Output filename')
+    await outputFilename.click()
+    await outputFilename.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
+    await outputFilename.pressSequentially('Phase 5 Typed Output')
+    await expect(outputFilename).toHaveValue('Phase 5 Typed Output')
+    await outputFilename.press('Enter')
+    await expect(outputFilename).toHaveValue('Phase 5 Typed Output.mp4')
 
     for (const musicPath of [musicOne, musicTwo]) {
       await electronApp.evaluate(({ dialog }, selectedPath) => {

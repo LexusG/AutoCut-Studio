@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { ChevronDown, Gauge, Scissors, SlidersHorizontal, Video } from 'lucide-react'
 import type {
   AspectRatio,
@@ -48,6 +49,8 @@ export function SettingsPanel(): React.JSX.Element {
   const setOutputFilename = useAppStore((state) => state.setOutputFilename)
   const setPreviewQuality = useAppStore((state) => state.setPreviewQuality)
   const personStatus = useAppStore((state) => state.personDetectionStatus)
+  const [outputFilenameDraft, setOutputFilenameDraft] = useState(settings.outputFilename)
+  useEffect(() => setOutputFilenameDraft(settings.outputFilename), [settings.outputFilename])
   const warnings = validateProjectSettings(settings, clipCount).filter(
     (issue) => issue.severity === 'warning'
   )
@@ -285,7 +288,18 @@ export function SettingsPanel(): React.JSX.Element {
             </label>
             <label className="stacked-setting">
               <span>Output filename</span>
-              <input value={settings.outputFilename} onChange={(event) => setOutputFilename(event.target.value)} />
+              <input
+                value={outputFilenameDraft}
+                onChange={(event) => setOutputFilenameDraft(event.target.value)}
+                onBlur={() => setOutputFilename(outputFilenameDraft)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur()
+                  if (event.key === 'Escape') {
+                    setOutputFilenameDraft(settings.outputFilename)
+                    event.currentTarget.blur()
+                  }
+                }}
+              />
             </label>
             <div className="codec-summary"><span>Video</span><strong>H.264</strong><span>Audio</span><strong>AAC</strong></div>
           </div>
