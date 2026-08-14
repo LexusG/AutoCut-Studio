@@ -108,6 +108,13 @@ export function getOutputSpec(
 ): OutputSpec {
   const firstSource = sources[0]
   if (!firstSource) throw new Error('Add at least one video before rendering.')
+  if (settings.outputWidth > 0 && settings.outputHeight > 0) {
+    return {
+      width: even(settings.outputWidth),
+      height: even(settings.outputHeight),
+      frameRate: resolveFrameRate(settings.frameRate, sources)
+    }
+  }
   const shortEdge = settings.resolution === '1080p' ? 1080 : 720
   const ratio = resolveAspectRatio(settings.aspectRatio, firstSource)
   const width = ratio >= 1 ? even(shortEdge * ratio) : shortEdge

@@ -1,8 +1,23 @@
 import { basename, extname, isAbsolute } from 'node:path'
 import { dialog, ipcMain } from 'electron'
+import { AUDIO_FILE_FILTER } from '@shared/constants/audio'
 import { VIDEO_FILE_FILTER } from '@shared/constants/media'
-import { IPC_CHANNELS, type RenderRequest, type RenderSettings } from '@shared/types'
+import {
+  IPC_CHANNELS,
+  type ProjectFile,
+  type RenderRequest,
+  type RenderSettings
+} from '@shared/types'
+import { parseProjectFile } from '@shared/utils/project-codec'
+import { sanitizeFilenamePart } from '@shared/utils/project-settings'
+import { importAudio } from '../services/audio/importer'
 import { detectFfmpeg } from '../services/ffmpeg/binaries'
+import {
+  getRecentProjects,
+  openProjectFile,
+  removeRecentProject,
+  saveProjectFile
+} from '../services/projects/project-storage'
 import { importVideos } from '../services/video/importer'
 import { cancelRender, renderVideo } from '../services/video/renderer'
 
@@ -24,6 +39,8 @@ function isRenderSettings(value: unknown): value is RenderSettings {
   return (
     ['original', '16:9', '9:16', '1:1', '4:5'].includes(settings.aspectRatio ?? '') &&
     ['720p', '1080p'].includes(settings.resolution ?? '') &&
+    typeof settings.outputWidth === 'number' && settings.outputWidth > 0 &&
+    typeof settings.outputHeight === 'number' && settings.outputHeight > 0 &&
     ['auto', 24, 30, 60].includes(settings.frameRate ?? '') &&
     ['original-order', 'automatic', 'random'].includes(settings.editingMode ?? '') &&
     ['slow', 'normal', 'fast'].includes(settings.pace ?? '') &&
@@ -52,6 +69,15 @@ function validateRenderRequest(value: unknown): RenderRequest {
   return { ...request, sourcePaths, settings: request.settings } as RenderRequest
 }
 
+function validateProject(value: unknown): ProjectFile {
+  return parseProjectFile(JSON.stringify(value))
+}
+
+function validateLocalPath(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !isAbsolute(value)) throw new Error(`${label} path is invalid.`)
+  return value
+}
+
 export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.ffmpegStatus, () => detectFfmpeg())
 
@@ -66,6 +92,58 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.importVideos, (_event, paths: unknown) => {
     return importVideos(validatePaths(paths))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.chooseAudio, async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Add background audio',
+      properties: ['openFile'],
+      filters: [AUDIO_FILE_FILTER]
+    })
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.importAudio, (_event, value: unknown) => {
+    return importAudio(validateLocalPath(value, 'Audio'))
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.saveProject,
+    async (_event, value: unknown, currentPath: unknown) => {
+      const project = validateProject(value)
+      let filePath =
+        currentPath == null ? null : validateLocalPath(currentPath, 'Project')
+      if (!filePath) {
+        const result = await dialog.showSaveDialog({
+          title: 'Save AutoCut Studio project',
+          defaultPath: `${sanitizeFilenamePart(project.settings.name)}.autocut.json`,
+          filters: [{ name: 'AutoCut Studio project', extensions: ['json'] }]
+        })
+        if (result.canceled || !result.filePath) return null
+        filePath = result.filePath
+      }
+      return saveProjectFile(filePath, project)
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.chooseProject, async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Open AutoCut Studio project',
+      properties: ['openFile'],
+      filters: [{ name: 'AutoCut Studio project', extensions: ['json', 'autocut'] }]
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+    return openProjectFile(result.filePaths[0])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.openProject, (_event, value: unknown) => {
+    return openProjectFile(validateLocalPath(value, 'Project'))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.recentProjects, () => getRecentProjects())
+
+  ipcMain.handle(IPC_CHANNELS.removeRecentProject, (_event, value: unknown) => {
+    return removeRecentProject(validateLocalPath(value, 'Project'))
   })
 
   ipcMain.handle(IPC_CHANNELS.chooseOutput, async (_event, suggestedName: unknown) => {

@@ -3,14 +3,37 @@ import { useAppStore } from '../stores/app-store'
 import { formatDuration, formatFileSize, formatFrameRate } from '../utils/format'
 
 export function PreviewPanel(): React.JSX.Element {
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [canvasSize, setCanvasSize] = useState({ width: 640, height: 360 })
   const selectedClip = useAppStore((state) => {
     return state.clips.find((clip) => clip.id === state.selectedClipId) ?? null
   })
   const renderResult = useAppStore((state) => state.renderResult)
+  const outputSettings = useAppStore((state) => state.projectSettings.output)
   const previewMode = useAppStore((state) => state.previewMode)
   const setPreviewMode = useAppStore((state) => state.setPreviewMode)
   const showingOutput = previewMode === 'output' && renderResult
   const outputFilename = renderResult?.outputPath.split(/[\\/]/).pop() ?? 'Generated video.mp4'
+
+  useEffect(() => {
+    const stage = stageRef.current
+    if (!stage) return
+    const updateSize = (): void => {
+      const availableWidth = Math.max(120, stage.clientWidth - 48)
+      const availableHeight = Math.max(120, stage.clientHeight - 48)
+      const ratio = outputSettings.width / outputSettings.height
+      const availableRatio = availableWidth / availableHeight
+      if (availableRatio > ratio) {
+        setCanvasSize({ width: availableHeight * ratio, height: availableHeight })
+      } else {
+        setCanvasSize({ width: availableWidth, height: availableWidth / ratio })
+      }
+    }
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(stage)
+    updateSize()
+    return () => observer.disconnect()
+  }, [outputSettings.height, outputSettings.width])
 
   return (
     <section className="preview-panel" aria-label="Video preview">
@@ -42,18 +65,33 @@ export function PreviewPanel(): React.JSX.Element {
         </div>
       </div>
 
-      <div className="preview-stage">
-        {showingOutput ? (
-          <video key={renderResult.outputPath} src={renderResult.outputUrl} controls autoPlay preload="metadata" />
-        ) : selectedClip ? (
-          <video key={selectedClip.id} src={selectedClip.mediaUrl} controls preload="metadata" />
-        ) : (
-          <div className="preview-empty">
-            <span><Clapperboard size={34} /></span>
-            <h3>Select a clip to preview</h3>
-            <p>Imported source footage appears in this player.</p>
-          </div>
-        )}
+      <div className="preview-stage" ref={stageRef}>
+        <div
+          className="preview-canvas"
+          data-aspect-ratio={outputSettings.aspectRatio}
+          style={{ width: canvasSize.width, height: canvasSize.height }}
+        >
+          {showingOutput ? (
+            <video key={renderResult.outputPath} src={renderResult.outputUrl} controls autoPlay preload="metadata" />
+          ) : selectedClip ? (
+            <video
+              key={selectedClip.id}
+              src={selectedClip.mediaUrl}
+              controls
+              preload="metadata"
+              style={{ objectFit: outputSettings.fitMode === 'fit' ? 'contain' : 'cover' }}
+            />
+          ) : (
+            <div className="preview-empty">
+              <span><Clapperboard size={34} /></span>
+              <h3>Select a clip to preview</h3>
+              <p>Imported source footage appears in this output frame.</p>
+            </div>
+          )}
+          <span className="preview-canvas-label">
+            {outputSettings.width} × {outputSettings.height}
+          </span>
+        </div>
       </div>
 
       <div className="preview-inspector">
@@ -99,3 +137,4 @@ export function PreviewPanel(): React.JSX.Element {
     </section>
   )
 }
+import { useEffect, useRef, useState } from 'react'
