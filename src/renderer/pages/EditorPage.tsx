@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, Play } from 'lucide-react'
+import { ArrowLeft, Play, Save } from 'lucide-react'
 import { BrandMark } from '../components/BrandMark'
 import { FfmpegNotice } from '../components/FfmpegNotice'
 import { MediaPanel } from '../components/MediaPanel'
@@ -6,15 +6,19 @@ import { PreviewPanel } from '../components/PreviewPanel'
 import { RenderDialog } from '../components/RenderDialog'
 import { SettingsPanel } from '../components/SettingsPanel'
 import { useVideoRender } from '../hooks/use-video-render'
+import { useProjectFiles } from '../hooks/use-project-files'
 import { useAppStore } from '../stores/app-store'
 
 export function EditorPage(): React.JSX.Element {
   const returnHome = useAppStore((state) => state.returnHome)
-  const projectName = useAppStore((state) => state.projectName)
+  const projectName = useAppStore((state) => state.projectSettings.name)
+  const setProjectName = useAppStore((state) => state.setProjectName)
+  const projectDirty = useAppStore((state) => state.projectDirty)
   const clipCount = useAppStore((state) => state.clips.length)
   const ffmpegStatus = useAppStore((state) => state.ffmpegStatus)
   const isRendering = useAppStore((state) => state.renderStatus === 'rendering')
   const { generate, cancel } = useVideoRender()
+  const { save, busy: projectBusy, message: projectMessage, error: projectError } = useProjectFiles()
 
   return (
     <main className="editor-page">
@@ -25,13 +29,21 @@ export function EditorPage(): React.JSX.Element {
           </button>
           <BrandMark compact />
           <span className="header-divider" />
-          <button className="project-menu" type="button">
-            <span>{projectName}</span>
-            <ChevronDown size={15} />
-          </button>
+          <label className="project-name-field">
+            <input aria-label="Project name" value={projectName} onChange={(event) => setProjectName(event.target.value)} />
+            {projectDirty && <span title="Unsaved changes" />}
+          </label>
         </div>
         <div className="editor-header-right">
+          {(projectMessage || projectError) && (
+            <span className={projectError ? 'project-feedback project-feedback-error' : 'project-feedback'}>
+              {projectError ?? projectMessage}
+            </span>
+          )}
           <FfmpegNotice status={ffmpegStatus} />
+          <button className="button button-secondary" type="button" onClick={() => void save()} disabled={projectBusy || isRendering}>
+            <Save size={16} /> Save Project
+          </button>
           <button
             className="button button-primary"
             type="button"

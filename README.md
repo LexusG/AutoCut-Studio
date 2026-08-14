@@ -1,6 +1,6 @@
 # AutoCut Studio
 
-AutoCut Studio is a local-first Linux desktop application for turning a group of source clips into a finished MP4. The current MVP imports and analyzes footage, selects useful middle sections, normalizes mixed source formats, guarantees every imported clip contributes footage, and renders the result entirely through local FFmpeg processes.
+AutoCut Studio is a local-first Linux desktop application for configuring an automatic video project from local source clips. The Phase 2 editor adds social-platform presets, complete video/editing configuration, background-audio preparation, JSON project persistence, and validation on top of the Phase 1 media workflow.
 
 All footage remains on the local computer. Electron owns filesystem access and FFmpeg execution; the React renderer only communicates through a small, typed preload API.
 
@@ -16,10 +16,22 @@ All footage remains on the local computer. Electron owns filesystem access and F
 - Reorderable clip cards, duplicate prevention, removal, and detailed import errors
 - Local source-video preview through an allowlisted custom Electron protocol
 - Original-order, automatic, and random clip arrangements
-- Slow, normal, and fast deterministic middle-section trimming
+- Instagram Reel, Story, Feed Portrait, and Feed Square presets
+- YouTube Standard and Shorts presets
+- LinkedIn Landscape, Portrait, and Square presets
+- Editable presets with automatic Modified-state detection
+- Slow, normal, and fast editing pace configuration
 - Original, 16:9, 9:16, 1:1, and 4:5 output ratios
-- 720p/1080p output, Auto/24/30/60 FPS, Crop to Fill/Fit, and quality controls
-- Mixed-orientation, mixed-frame-rate, and mixed-audio normalization
+- Five common manual resolutions, custom dimensions, Auto/24/30/60 FPS, Crop to Fill/Fit, and quality controls
+- Output-ratio preview canvases that crop or fit source footage without stretching
+- Auto, 15, 30, 60, 90, and custom target duration settings with Use Every Clip warnings
+- MP3, WAV, AAC, M4A, OGG, and FLAC background-audio import and FFprobe metadata
+- Local music playback/seek, preview volume, looping, start position, fades, and ducking configuration
+- Original-clip audio preservation, volume, and normalization configuration
+- Versioned JSON project save/open with complete settings restoration and recent projects
+- Missing background-audio recovery through Locate File or Remove Audio
+- Automatic editable output filenames based on the selected platform format
+- Mixed-orientation, mixed-frame-rate, and audio-stream normalization in the existing basic renderer
 - Default-on **Use Every Clip** guarantee with all-or-fail rendering
 - H.264/AAC MP4 generation to a user-selected path
 - Real render stages and FFmpeg progress with safe cancellation and cleanup
@@ -74,6 +86,12 @@ The smoke test requires FFmpeg and a graphical Linux session or `xvfb-run`. In a
 
 AppImage packaging will be configured in the later packaging phase.
 
+## Project files
+
+Use **Save Project** in the editor to create a versioned `.autocut.json` project. Project files store local media paths and configuration; they do not copy source videos or music. Open them from the Home screen or the Recent Projects list.
+
+When referenced music has moved, the project opens with an **Audio file missing** state and offers Locate File or Remove Audio. Unavailable source-video paths are reported through the existing media import error UI.
+
 ## Project structure
 
 ```text
@@ -83,6 +101,8 @@ src/
     services/
       ffmpeg/            Binary detection and child-process execution
       filesystem/        Guarded local-media protocol
+      audio/             FFprobe background-audio import
+      projects/          Atomic project and recent-project persistence
       video/             Import, planning, normalization, and render services
   preload/               Narrow contextBridge API
   renderer/
@@ -92,8 +112,9 @@ src/
     stores/              Zustand application state
     utils/               Display formatting helpers
   shared/
-    constants/           App and supported-media constants
-    types/               IPC and media contracts
+    constants/           Media support and centralized platform presets
+    types/               IPC, project, audio, preset, and render contracts
+    utils/               Project codec, filename, settings, and validation logic
 tests/                   Unit tests
 ```
 
@@ -119,6 +140,10 @@ Expand the import error in the Media panel. Confirm the source still exists, its
 
 Run `npm run build` first to expose TypeScript or bundling errors. On minimal Linux installations, Electron may also require standard desktop libraries supplied by the distribution's Chromium/Electron packages.
 
-## Next: Phase 4
+## Phase 2 boundaries
 
-The next processing phase adds transitions, loudness normalization, and background-music mixing. Project persistence, recent projects, richer error recovery, and Linux packaging follow in subsequent phases.
+Phase 2 stores target-duration, transition, loudness normalization, looping, fades, and ducking intent. The existing basic renderer remains available, but it does not yet enforce target duration or mix the configured background track into the exported MP4.
+
+## Next: Phase 3
+
+Phase 3 connects the complete `ProjectRenderConfiguration` to automatic trimming, precise target-duration planning, normalization, concatenation, and background-audio processing. Advanced AI analysis, beat detection, and multiple music tracks remain out of scope.

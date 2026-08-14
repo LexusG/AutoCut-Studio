@@ -1,10 +1,24 @@
 import type { FfmpegStatus, ImportResult } from './media'
+import type {
+  AudioImportResult,
+  LoadedProject,
+  ProjectFile,
+  RecentProject,
+  SavedProject
+} from './project'
 import type { RenderProgress, RenderRequest, RenderResult } from './render'
 
 export interface AutoCutApi {
   getFfmpegStatus: () => Promise<FfmpegStatus>
   chooseVideoFiles: () => Promise<string[]>
   importVideoFiles: (paths: string[]) => Promise<ImportResult>
+  chooseAudioFile: () => Promise<string | null>
+  importAudioFile: (path: string) => Promise<AudioImportResult>
+  saveProject: (project: ProjectFile, currentPath: string | null) => Promise<SavedProject | null>
+  chooseProjectFile: () => Promise<LoadedProject | null>
+  openProjectFile: (path: string) => Promise<LoadedProject>
+  getRecentProjects: () => Promise<RecentProject[]>
+  removeRecentProject: (path: string) => Promise<RecentProject[]>
   chooseOutputPath: (suggestedName: string) => Promise<string | null>
   renderVideo: (request: RenderRequest) => Promise<RenderResult>
   cancelRender: (renderId: string) => Promise<boolean>
@@ -16,6 +30,13 @@ export const IPC_CHANNELS = {
   ffmpegStatus: 'system:ffmpeg-status',
   chooseVideos: 'files:choose-videos',
   importVideos: 'media:import-videos',
+  chooseAudio: 'files:choose-audio',
+  importAudio: 'media:import-audio',
+  saveProject: 'projects:save',
+  chooseProject: 'projects:choose',
+  openProject: 'projects:open',
+  recentProjects: 'projects:recent',
+  removeRecentProject: 'projects:remove-recent',
   chooseOutput: 'files:choose-output',
   renderVideo: 'video:render',
   cancelRender: 'video:cancel-render',

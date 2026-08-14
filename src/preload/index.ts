@@ -5,6 +5,14 @@ const api: AutoCutApi = {
   getFfmpegStatus: () => ipcRenderer.invoke(IPC_CHANNELS.ffmpegStatus),
   chooseVideoFiles: () => ipcRenderer.invoke(IPC_CHANNELS.chooseVideos),
   importVideoFiles: (paths) => ipcRenderer.invoke(IPC_CHANNELS.importVideos, paths),
+  chooseAudioFile: () => ipcRenderer.invoke(IPC_CHANNELS.chooseAudio),
+  importAudioFile: (path) => ipcRenderer.invoke(IPC_CHANNELS.importAudio, path),
+  saveProject: (project, currentPath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveProject, project, currentPath),
+  chooseProjectFile: () => ipcRenderer.invoke(IPC_CHANNELS.chooseProject),
+  openProjectFile: (path) => ipcRenderer.invoke(IPC_CHANNELS.openProject, path),
+  getRecentProjects: () => ipcRenderer.invoke(IPC_CHANNELS.recentProjects),
+  removeRecentProject: (path) => ipcRenderer.invoke(IPC_CHANNELS.removeRecentProject, path),
   chooseOutputPath: (suggestedName) =>
     ipcRenderer.invoke(IPC_CHANNELS.chooseOutput, suggestedName),
   renderVideo: (request) => ipcRenderer.invoke(IPC_CHANNELS.renderVideo, request),

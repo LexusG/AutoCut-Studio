@@ -9,6 +9,8 @@ export type RenderQuality = 'draft' | 'balanced' | 'high'
 export interface RenderSettings {
   aspectRatio: AspectRatio
   resolution: OutputResolution
+  outputWidth: number
+  outputHeight: number
   frameRate: OutputFrameRate
   editingMode: EditingMode
   pace: EditingPace
@@ -50,6 +52,8 @@ export interface RenderResult {
 export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
   aspectRatio: 'original',
   resolution: '1080p',
+  outputWidth: 1920,
+  outputHeight: 1080,
   frameRate: 30,
   editingMode: 'original-order',
   pace: 'normal',

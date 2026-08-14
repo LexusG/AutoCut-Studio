@@ -46,7 +46,14 @@ describe('render planner', () => {
 
   it('resolves standard output dimensions and frame rate', () => {
     const spec = getOutputSpec(
-      { ...DEFAULT_RENDER_SETTINGS, aspectRatio: '9:16', resolution: '720p', frameRate: 'auto' },
+      {
+        ...DEFAULT_RENDER_SETTINGS,
+        aspectRatio: '9:16',
+        resolution: '720p',
+        outputWidth: 720,
+        outputHeight: 1280,
+        frameRate: 'auto'
+      },
       [source('/portrait.mp4', 5, 1080, 1920)]
     )
     expect(spec).toEqual({ width: 720, height: 1280, frameRate: 30 })
