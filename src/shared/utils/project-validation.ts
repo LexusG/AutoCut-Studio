@@ -33,6 +33,9 @@ export function validateProjectSettings(
   if (settings.editing.targetDuration.mode === 'custom' && (!targetSeconds || targetSeconds <= 0)) {
     add('target-duration', 'error', 'Custom target duration must be greater than zero seconds.')
   }
+  if (settings.editing.transitionDuration < 0 || settings.editing.transitionDuration > 2) {
+    add('transition-duration', 'error', 'Transition duration must be between 0 and 2 seconds.')
+  }
   if (settings.editing.useEveryClip && targetSeconds && clipCount > 0) {
     const approximateMinimum = clipCount * minimumSecondsPerClip[settings.editing.pace]
     if (targetSeconds < approximateMinimum) {

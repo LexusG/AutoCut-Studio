@@ -1,19 +1,18 @@
-import { CheckCircle2, Clapperboard, Film, MonitorPlay } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Clapperboard, Eye, Film, MonitorPlay } from 'lucide-react'
 import { useAppStore } from '../stores/app-store'
 import { formatDuration, formatFileSize, formatFrameRate } from '../utils/format'
 
 export function PreviewPanel(): React.JSX.Element {
   const stageRef = useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = useState({ width: 640, height: 360 })
-  const selectedClip = useAppStore((state) => {
-    return state.clips.find((clip) => clip.id === state.selectedClipId) ?? null
-  })
-  const renderResult = useAppStore((state) => state.renderResult)
+  const selectedClip = useAppStore((state) =>
+    state.clips.find((clip) => clip.id === state.selectedClipId) ?? null
+  )
   const outputSettings = useAppStore((state) => state.projectSettings.output)
-  const previewMode = useAppStore((state) => state.previewMode)
-  const setPreviewMode = useAppStore((state) => state.setPreviewMode)
-  const showingOutput = previewMode === 'output' && renderResult
-  const outputFilename = renderResult?.outputPath.split(/[\\/]/).pop() ?? 'Generated video.mp4'
+  const previewResult = useAppStore((state) => state.previewResult)
+  const previewOutdated = useAppStore((state) => state.previewOutdated)
+  const showReview = useAppStore((state) => state.showReview)
 
   useEffect(() => {
     const stage = stageRef.current
@@ -36,32 +35,16 @@ export function PreviewPanel(): React.JSX.Element {
   }, [outputSettings.height, outputSettings.width])
 
   return (
-    <section className="preview-panel" aria-label="Video preview">
+    <section className="preview-panel" aria-label="Source preview">
       <div className="preview-toolbar">
-        <div>
-          <MonitorPlay size={17} />
-          <h2>{showingOutput ? 'Output Preview' : 'Source Preview'}</h2>
-        </div>
+        <div><MonitorPlay size={17} /><h2>Source Preview</h2></div>
         <div className="preview-toolbar-right">
-          {renderResult && (
-            <div className="preview-tabs" role="tablist" aria-label="Preview source">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={!showingOutput}
-                onClick={() => setPreviewMode('source')}
-              >Source</button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={Boolean(showingOutput)}
-                onClick={() => setPreviewMode('output')}
-              >Output</button>
-            </div>
+          {previewResult && (
+            <button className="review-preview-link" type="button" onClick={showReview}>
+              <Eye size={15} /> {previewOutdated ? 'Review Outdated Preview' : 'Review Preview'}
+            </button>
           )}
-          <span title={showingOutput ? renderResult?.outputPath : selectedClip?.path}>
-            {showingOutput ? outputFilename : selectedClip?.filename}
-          </span>
+          <span title={selectedClip?.path}>{selectedClip?.filename}</span>
         </div>
       </div>
 
@@ -71,9 +54,7 @@ export function PreviewPanel(): React.JSX.Element {
           data-aspect-ratio={outputSettings.aspectRatio}
           style={{ width: canvasSize.width, height: canvasSize.height }}
         >
-          {showingOutput ? (
-            <video key={renderResult.outputPath} src={renderResult.outputUrl} controls autoPlay preload="metadata" />
-          ) : selectedClip ? (
+          {selectedClip ? (
             <video
               key={selectedClip.id}
               src={selectedClip.mediaUrl}
@@ -95,24 +76,7 @@ export function PreviewPanel(): React.JSX.Element {
       </div>
 
       <div className="preview-inspector">
-        {showingOutput ? (
-          <>
-            <div className="inspector-primary inspector-output">
-              <CheckCircle2 size={18} />
-              <div>
-                <strong>{outputFilename}</strong>
-                <span>H.264 / AAC finished video</span>
-              </div>
-            </div>
-            <dl>
-              <div><dt>Duration</dt><dd>{formatDuration(renderResult.duration)}</dd></div>
-              <div><dt>Container</dt><dd>MP4</dd></div>
-              <div><dt>Video</dt><dd>H.264</dd></div>
-              <div><dt>Audio</dt><dd>AAC</dd></div>
-              <div className="output-path-detail"><dt>Saved to</dt><dd title={renderResult.outputPath}>{renderResult.outputPath}</dd></div>
-            </dl>
-          </>
-        ) : selectedClip ? (
+        {selectedClip ? (
           <>
             <div className="inspector-primary">
               <Film size={18} />
@@ -137,4 +101,3 @@ export function PreviewPanel(): React.JSX.Element {
     </section>
   )
 }
-import { useEffect, useRef, useState } from 'react'

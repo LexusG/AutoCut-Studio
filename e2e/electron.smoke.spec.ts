@@ -7,12 +7,13 @@ import { _electron as electron, expect, test } from '@playwright/test'
 
 const execFileAsync = promisify(execFile)
 
-test('imports mixed clips and generates a finished local video', async () => {
+test('generates, reviews, regenerates, approves, and exports a real multi-clip edit', async () => {
   const fixtureDirectory = await mkdtemp(join(tmpdir(), 'autocut-smoke-'))
   const landscapePath = join(fixtureDirectory, 'landscape-with-audio.mp4')
   const portraitPath = join(fixtureDirectory, 'portrait-silent.mp4')
   const audioPath = join(fixtureDirectory, 'background-music.wav')
   const outputPath = join(fixtureDirectory, 'autocut-output.mp4')
+  const fullPreviewOutputPath = join(fixtureDirectory, 'autocut-full-preview-output.mp4')
   const projectPath = join(fixtureDirectory, 'phase-2-smoke.autocut.json')
 
   await execFileAsync('ffmpeg', [
@@ -28,7 +29,7 @@ test('imports mixed clips and generates a finished local video', async () => {
     '-i',
     'sine=frequency=440:sample_rate=48000',
     '-t',
-    '2',
+    '4',
     '-c:v',
     'libx264',
     '-pix_fmt',
@@ -48,7 +49,7 @@ test('imports mixed clips and generates a finished local video', async () => {
     '-i',
     'testsrc2=size=360x640:rate=24',
     '-t',
-    '1.5',
+    '3.5',
     '-c:v',
     'libx264',
     '-pix_fmt',
@@ -86,7 +87,7 @@ test('imports mixed clips and generates a finished local video', async () => {
     await expect(page.getByRole('heading', { name: 'AutoCut Studio' })).toBeVisible()
     await page.getByRole('button', { name: 'New Project' }).click()
     await expect(page.getByRole('heading', { name: 'Media' })).toBeVisible()
-    await page.getByLabel('Project name').fill('Phase 2 Smoke')
+    await page.getByLabel('Project name').fill('Phase 3 Smoke')
 
     await electronApp.evaluate(({ dialog }, paths) => {
       dialog.showOpenDialog = async () => ({
@@ -193,7 +194,7 @@ test('imports mixed clips and generates a finished local video', async () => {
     })
 
     await page.getByRole('button', { name: 'Back to Home' }).click()
-    await page.locator('.recent-project-open').filter({ hasText: 'Phase 2 Smoke' }).first().click()
+    await page.locator('.recent-project-open').filter({ hasText: 'Phase 3 Smoke' }).first().click()
     await expect(page.getByRole('heading', { name: 'Media' })).toBeVisible()
     await expect(page.locator('.clip-card')).toHaveCount(2)
     await expect(page.locator('.preset-section')).toContainText('Instagram Feed Square — Modified')
@@ -205,8 +206,37 @@ test('imports mixed clips and generates a finished local video', async () => {
     await electronApp.evaluate(({ dialog }, selectedPath) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: selectedPath })
     }, outputPath)
-    await page.getByRole('button', { name: 'Generate Video' }).click()
-    await expect(page.getByRole('heading', { name: 'Video ready' })).toBeVisible({ timeout: 30_000 })
+    await page.getByLabel('Custom target duration').fill('1')
+    await page.getByRole('button', { name: 'Generate Preview' }).click()
+    await expect(page.getByRole('heading', { name: 'Target duration is too short' })).toBeVisible()
+    await page.getByRole('button', { name: 'Use 3 Seconds' }).click()
+    await expect(page.getByLabel('Custom target duration')).toHaveValue('3')
+    await page.locator('label.stacked-setting').filter({ hasText: 'Target duration' }).locator('select').selectOption('auto')
+    await page.getByLabel('Preview quality').selectOption('fast')
+    await page.getByRole('button', { name: 'Generate Preview' }).click()
+    await expect(page.getByRole('heading', { name: 'Preview ready' })).toBeVisible({ timeout: 45_000 })
+    await page.getByRole('button', { name: 'Review Preview' }).click()
+    await expect(page.getByRole('heading', { name: 'Phase 3 Smoke' })).toBeVisible()
+    await expect(page.getByText('Preview / Not Yet Exported')).toBeVisible()
+    await expect(page.locator('.final-preview-video')).toHaveAttribute('src', /^autocut-media:/)
+    await expect(page.locator('.review-metadata')).toContainText('960 x 960')
+    await page.screenshot({ path: '/tmp/autocut-studio-phase-three-review.png', fullPage: true })
+
+    await page.getByRole('button', { name: 'Back to Edit' }).first().click()
+    await page.getByLabel('Transition preference').selectOption('dip-to-black')
+    await page.getByLabel('Transition duration').selectOption('0.25')
+    await page.getByRole('button', { name: 'Review Outdated Preview' }).click()
+    await expect(page.getByText('Settings Changed')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Approve & Export' })).toBeDisabled()
+    await page.getByRole('button', { name: 'Regenerate' }).click()
+    await expect(page.getByRole('heading', { name: 'Preview ready' })).toBeVisible({ timeout: 45_000 })
+    await page.getByRole('button', { name: 'Review Preview' }).click()
+
+    await electronApp.evaluate(({ dialog }, selectedPath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: selectedPath })
+    }, outputPath)
+    await page.getByRole('button', { name: 'Approve & Export' }).click()
+    await expect(page.getByRole('heading', { name: 'Export complete' })).toBeVisible({ timeout: 60_000 })
     expect((await stat(outputPath)).size).toBeGreaterThan(10_000)
 
     const { stdout } = await execFileAsync('ffprobe', [
@@ -222,7 +252,7 @@ test('imports mixed clips and generates a finished local video', async () => {
       format: { duration: string }
       streams: Array<{ codec_type: string; codec_name: string; width?: number; height?: number }>
     }
-    expect(Number(probe.format.duration)).toBeGreaterThan(3.2)
+    expect(Number(probe.format.duration)).toBeGreaterThan(2.5)
     expect(probe.streams).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ codec_type: 'video', codec_name: 'h264', width: 1080, height: 1080 }),
@@ -230,12 +260,34 @@ test('imports mixed clips and generates a finished local video', async () => {
       ])
     )
 
-    await page.getByRole('button', { name: 'View Video' }).click()
-    await expect(page.getByRole('tab', { name: 'Output' })).toHaveAttribute('aria-selected', 'true')
-    await expect(page.locator('video')).toHaveAttribute('src', /^autocut-media:/)
+    await page.getByRole('button', { name: 'View Export Summary' }).click()
+    await expect(page.getByText('Export Complete')).toBeVisible()
+    await expect(page.locator('.export-summary')).toContainText('1080 x 1080')
+    await page.getByRole('button', { name: 'Back to Project' }).click()
+
+    await page.getByLabel('Preview quality').selectOption('full')
+    await page.getByLabel('Output quality').selectOption('draft')
+    await page.getByRole('button', { name: 'Generate Preview' }).click()
+    await expect(page.getByRole('heading', { name: 'Preview ready' })).toBeVisible({ timeout: 60_000 })
+    await page.getByRole('button', { name: 'Review Preview' }).click()
+    await expect(page.locator('.review-metadata')).toContainText('1080 x 1080')
+    await page.setViewportSize({ width: 720, height: 900 })
+    await expect(page.getByRole('button', { name: 'Approve & Export' })).toBeVisible()
+    await page.screenshot({ path: '/tmp/autocut-studio-phase-three-review-compact.png', fullPage: true })
+    await page.setViewportSize({ width: 1366, height: 768 })
+
+    await electronApp.evaluate(({ dialog }, selectedPath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: selectedPath })
+    }, fullPreviewOutputPath)
+    await page.getByRole('button', { name: 'Approve & Export' }).click()
+    await expect(page.getByRole('heading', { name: 'Export complete' })).toBeVisible({ timeout: 30_000 })
+    await page.getByRole('button', { name: 'View Export Summary' }).click()
+    await expect(page.locator('.export-summary')).toContainText('Preview reused')
+    expect((await stat(fullPreviewOutputPath)).size).toBeGreaterThan(10_000)
+    await page.getByRole('button', { name: 'Back to Project' }).click()
     await page.getByRole('button', { name: 'Back to Home' }).click()
     await rm(audioPath, { force: true })
-    await page.locator('.recent-project-open').filter({ hasText: 'Phase 2 Smoke' }).first().click()
+    await page.locator('.recent-project-open').filter({ hasText: 'Phase 3 Smoke' }).first().click()
     await expect(page.getByText('Audio file missing', { exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Locate File' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Remove Audio' })).toBeVisible()

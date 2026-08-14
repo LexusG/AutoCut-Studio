@@ -1,11 +1,14 @@
-import { basename, extname, isAbsolute } from 'node:path'
-import { dialog, ipcMain } from 'electron'
+import { access } from 'node:fs/promises'
+import { basename, extname, isAbsolute, resolve } from 'node:path'
+import { dialog, ipcMain, shell } from 'electron'
 import { AUDIO_FILE_FILTER } from '@shared/constants/audio'
 import { VIDEO_FILE_FILTER } from '@shared/constants/media'
 import {
   IPC_CHANNELS,
+  type ExportRenderRequest,
+  type PreviewRenderRequest,
   type ProjectFile,
-  type RenderRequest,
+  type RenderPlan,
   type RenderSettings
 } from '@shared/types'
 import { parseProjectFile } from '@shared/utils/project-codec'
@@ -19,7 +22,11 @@ import {
   saveProjectFile
 } from '../services/projects/project-storage'
 import { importVideos } from '../services/video/importer'
-import { cancelRender, renderVideo } from '../services/video/renderer'
+import {
+  cancelRender,
+  exportApprovedPreview,
+  generatePreview
+} from '../services/video/renderer'
 
 const MAX_FILES_PER_IMPORT = 250
 
@@ -36,6 +43,7 @@ function validatePaths(value: unknown): string[] {
 function isRenderSettings(value: unknown): value is RenderSettings {
   if (!value || typeof value !== 'object') return false
   const settings = value as Partial<RenderSettings>
+  const audio = settings.audio
   return (
     ['original', '16:9', '9:16', '1:1', '4:5'].includes(settings.aspectRatio ?? '') &&
     ['720p', '1080p'].includes(settings.resolution ?? '') &&
@@ -46,18 +54,100 @@ function isRenderSettings(value: unknown): value is RenderSettings {
     ['slow', 'normal', 'fast'].includes(settings.pace ?? '') &&
     ['crop', 'fit'].includes(settings.fitMode ?? '') &&
     ['draft', 'balanced', 'high'].includes(settings.quality ?? '') &&
-    typeof settings.useEveryClip === 'boolean'
+    ['fast', 'full'].includes(settings.previewQuality ?? '') &&
+    typeof settings.useEveryClip === 'boolean' &&
+    (settings.targetDuration == null ||
+      (typeof settings.targetDuration === 'number' && settings.targetDuration > 0)) &&
+    ['none', 'crossfade', 'fade', 'dip-to-black'].includes(settings.transitionPreference ?? '') &&
+    typeof settings.transitionDuration === 'number' &&
+    settings.transitionDuration >= 0 &&
+    settings.transitionDuration <= 2 &&
+    Boolean(audio) &&
+    typeof audio?.musicVolume === 'number' && audio.musicVolume >= 0 && audio.musicVolume <= 100 &&
+    typeof audio?.preserveOriginalAudio === 'boolean' &&
+    typeof audio?.originalAudioVolume === 'number' && audio.originalAudioVolume >= 0 && audio.originalAudioVolume <= 100 &&
+    typeof audio?.normalizeClipAudio === 'boolean' &&
+    typeof audio?.loopBackgroundMusic === 'boolean' &&
+    typeof audio?.musicStartPosition === 'number' && audio.musicStartPosition >= 0 &&
+    typeof audio?.duckMusicDuringClipAudio === 'boolean' &&
+    Boolean(audio?.fadeIn) && typeof audio?.fadeIn.duration === 'number' && audio.fadeIn.duration >= 0 &&
+    Boolean(audio?.fadeOut) && typeof audio?.fadeOut.duration === 'number' && audio.fadeOut.duration >= 0 &&
+    (audio?.backgroundTrack == null ||
+      (typeof audio.backgroundTrack.path === 'string' &&
+        isAbsolute(audio.backgroundTrack.path) &&
+        typeof audio.backgroundTrack.duration === 'number' &&
+        audio.backgroundTrack.duration > 0 &&
+        typeof audio.backgroundTrack.missing === 'boolean'))
   )
 }
 
-function validateRenderRequest(value: unknown): RenderRequest {
-  if (!value || typeof value !== 'object') throw new Error('The render request is invalid.')
-  const request = value as Partial<RenderRequest>
-  if (typeof request.renderId !== 'string' || request.renderId.length < 8 || request.renderId.length > 100) {
+function validateRenderId(value: unknown): string {
+  if (typeof value !== 'string' || value.length < 8 || value.length > 100) {
     throw new Error('The render identifier is invalid.')
+  }
+  return value
+}
+
+function validatePreviewRequest(value: unknown): PreviewRenderRequest {
+  if (!value || typeof value !== 'object') throw new Error('The preview request is invalid.')
+  const request = value as Partial<PreviewRenderRequest>
+  const renderId = validateRenderId(request.renderId)
+  if (typeof request.projectId !== 'string' || !request.projectId || request.projectId.length > 100) {
+    throw new Error('The project identifier is invalid.')
+  }
+  if (!Number.isInteger(request.generation) || (request.generation ?? -1) < 0) {
+    throw new Error('The preview generation is invalid.')
+  }
+  if (typeof request.settingsFingerprint !== 'string' || request.settingsFingerprint.length < 8) {
+    throw new Error('The project settings fingerprint is invalid.')
   }
   const sourcePaths = validatePaths(request.sourcePaths)
   if (!sourcePaths.every(isAbsolute)) throw new Error('Every source must be a local file.')
+  if (!isRenderSettings(request.settings)) throw new Error('The output settings are invalid.')
+  return { ...request, renderId, sourcePaths, settings: request.settings } as PreviewRenderRequest
+}
+
+function isRenderPlan(value: unknown): value is RenderPlan {
+  if (!value || typeof value !== 'object') return false
+  const plan = value as Partial<RenderPlan>
+  return (
+    plan.version === 1 &&
+    typeof plan.id === 'string' &&
+    typeof plan.projectId === 'string' &&
+    Array.isArray(plan.segments) &&
+    plan.segments.length > 0 &&
+    plan.segments.every((segment) =>
+      Boolean(segment) &&
+      typeof segment.sourcePath === 'string' &&
+      isAbsolute(segment.sourcePath) &&
+      typeof segment.start === 'number' &&
+      segment.start >= 0 &&
+      typeof segment.duration === 'number' &&
+      segment.duration > 0 &&
+      typeof segment.end === 'number' &&
+      typeof segment.sourceDuration === 'number' &&
+      segment.sourceDuration > 0 &&
+      Math.abs(segment.end - (segment.start + segment.duration)) <= 0.02 &&
+      segment.end <= segment.sourceDuration + 0.01
+    ) &&
+    Boolean(plan.output) &&
+    Number.isInteger(plan.output?.width) &&
+    (plan.output?.width ?? 0) > 0 &&
+    (plan.output?.width ?? 0) <= 7680 &&
+    Number.isInteger(plan.output?.height) &&
+    (plan.output?.height ?? 0) > 0 &&
+    (plan.output?.height ?? 0) <= 7680 &&
+    typeof plan.output?.frameRate === 'number' &&
+    plan.output.frameRate > 0 &&
+    typeof plan.expectedDuration === 'number' &&
+    plan.expectedDuration > 0
+  )
+}
+
+function validateExportRequest(value: unknown): ExportRenderRequest {
+  if (!value || typeof value !== 'object') throw new Error('The export request is invalid.')
+  const request = value as Partial<ExportRenderRequest>
+  const renderId = validateRenderId(request.renderId)
   if (
     typeof request.outputPath !== 'string' ||
     !isAbsolute(request.outputPath) ||
@@ -65,8 +155,21 @@ function validateRenderRequest(value: unknown): RenderRequest {
   ) {
     throw new Error('Choose a local MP4 output path.')
   }
-  if (!isRenderSettings(request.settings)) throw new Error('The output settings are invalid.')
-  return { ...request, sourcePaths, settings: request.settings } as RenderRequest
+  if (
+    typeof request.previewPath !== 'string' ||
+    !isAbsolute(request.previewPath) ||
+    extname(request.previewPath).toLowerCase() !== '.mp4'
+  ) {
+    throw new Error('The approved preview path is invalid.')
+  }
+  if (!['fast', 'full'].includes(request.previewQuality ?? '')) {
+    throw new Error('The preview quality is invalid.')
+  }
+  if (!isRenderPlan(request.plan)) throw new Error('The frozen render plan is invalid.')
+  if (request.plan.segments.some((segment) => resolve(segment.sourcePath) === resolve(request.outputPath!))) {
+    throw new Error('The export destination cannot replace a source video.')
+  }
+  return { ...request, renderId } as ExportRenderRequest
 }
 
 function validateProject(value: unknown): ProjectFile {
@@ -76,6 +179,15 @@ function validateProject(value: unknown): ProjectFile {
 function validateLocalPath(value: unknown, label: string): string {
   if (typeof value !== 'string' || !isAbsolute(value)) throw new Error(`${label} path is invalid.`)
   return value
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function registerIpcHandlers(): void {
@@ -156,12 +268,33 @@ export function registerIpcHandlers(): void {
       defaultPath: safeName.toLowerCase().endsWith('.mp4') ? safeName : `${safeName}.mp4`,
       filters: [{ name: 'MP4 video', extensions: ['mp4'] }]
     })
-    return result.canceled ? null : result.filePath
+    if (result.canceled || !result.filePath) return null
+    if (await pathExists(result.filePath)) {
+      const confirmation = await dialog.showMessageBox({
+        type: 'warning',
+        title: 'Replace existing video?',
+        message: `${basename(result.filePath)} already exists.`,
+        detail: 'The existing file will be replaced only if you continue.',
+        buttons: ['Cancel', 'Replace'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true
+      })
+      if (confirmation.response !== 1) return null
+    }
+    return result.filePath
   })
 
-  ipcMain.handle(IPC_CHANNELS.renderVideo, (event, value: unknown) => {
-    const request = validateRenderRequest(value)
-    return renderVideo(request, (progress) => {
+  ipcMain.handle(IPC_CHANNELS.generatePreview, (event, value: unknown) => {
+    const request = validatePreviewRequest(value)
+    return generatePreview(request, (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.renderProgress, progress)
+    })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.exportApprovedPreview, (event, value: unknown) => {
+    const request = validateExportRequest(value)
+    return exportApprovedPreview(request, (progress) => {
       if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.renderProgress, progress)
     })
   })
@@ -169,5 +302,13 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.cancelRender, (_event, renderId: unknown) => {
     if (typeof renderId !== 'string') throw new Error('The render identifier is invalid.')
     return cancelRender(renderId)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.openFile, (_event, value: unknown) => {
+    return shell.openPath(validateLocalPath(value, 'File'))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.showItemInFolder, (_event, value: unknown) => {
+    shell.showItemInFolder(validateLocalPath(value, 'File'))
   })
 }

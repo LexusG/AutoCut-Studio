@@ -45,6 +45,7 @@ export function SettingsPanel(): React.JSX.Element {
   const updateEditing = useAppStore((state) => state.updateEditing)
   const updateTargetDuration = useAppStore((state) => state.updateTargetDuration)
   const setOutputFilename = useAppStore((state) => state.setOutputFilename)
+  const setPreviewQuality = useAppStore((state) => state.setPreviewQuality)
   const warnings = validateProjectSettings(settings, clipCount).filter(
     (issue) => issue.severity === 'warning'
   )
@@ -82,7 +83,7 @@ export function SettingsPanel(): React.JSX.Element {
     <aside className="settings-panel" aria-label="Project configuration">
       <div className="settings-heading">
         <div><SlidersHorizontal size={17} /><h2>Project Settings</h2></div>
-        <span>PHASE 2</span>
+        <span>PHASE 3</span>
       </div>
 
       <div className="settings-scroll">
@@ -196,6 +197,19 @@ export function SettingsPanel(): React.JSX.Element {
                 <option value="dip-to-black">Dip to Black</option>
               </select>
             </label>
+            {editing.transitionPreference !== 'none' && (
+              <label className="stacked-setting">
+                <span>Transition duration</span>
+                <select
+                  value={String(editing.transitionDuration)}
+                  onChange={(event) => updateEditing('transitionDuration', Number(event.target.value))}
+                >
+                  <option value="0.25">0.25 seconds</option>
+                  <option value="0.5">0.5 seconds</option>
+                  <option value="1">1 second</option>
+                </select>
+              </label>
+            )}
             {warnings.map((warning) => <div className="settings-warning" key={warning.code}>{warning.message}</div>)}
           </div>
         </details>
@@ -205,6 +219,13 @@ export function SettingsPanel(): React.JSX.Element {
         <details className="settings-details" open>
           <summary><Gauge size={14} /> Export Settings <ChevronDown size={13} /></summary>
           <div className="settings-details-body">
+            <label className="stacked-setting">
+              <span>Preview quality</span>
+              <select value={settings.previewQuality} onChange={(event) => setPreviewQuality(event.target.value as 'fast' | 'full')}>
+                <option value="fast">Fast Preview</option>
+                <option value="full">Full Quality Preview</option>
+              </select>
+            </label>
             <label className="stacked-setting">
               <span>Output quality</span>
               <select value={output.quality} onChange={(event) => updateOutput({ quality: event.target.value as RenderQuality })}>

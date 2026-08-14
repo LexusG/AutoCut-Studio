@@ -1,6 +1,6 @@
 # AutoCut Studio
 
-AutoCut Studio is a local-first Linux desktop application for configuring an automatic video project from local source clips. The Phase 2 editor adds social-platform presets, complete video/editing configuration, background-audio preparation, JSON project persistence, and validation on top of the Phase 1 media workflow.
+AutoCut Studio is a local-first Linux desktop application that automatically plans, previews, and exports an edited video from local source clips. Phase 3 connects the persisted platform, editing, transition, and audio settings to a real FFmpeg pipeline and adds a preview approval workflow before final export.
 
 All footage remains on the local computer. Electron owns filesystem access and FFmpeg execution; the React renderer only communicates through a small, typed preload API.
 
@@ -24,18 +24,30 @@ All footage remains on the local computer. Electron owns filesystem access and F
 - Original, 16:9, 9:16, 1:1, and 4:5 output ratios
 - Five common manual resolutions, custom dimensions, Auto/24/30/60 FPS, Crop to Fill/Fit, and quality controls
 - Output-ratio preview canvases that crop or fit source footage without stretching
-- Auto, 15, 30, 60, 90, and custom target duration settings with Use Every Clip warnings
+- Auto, 15, 30, 60, 90, and custom target durations applied before rendering
+- Deterministic section selection that avoids clip edges and follows the configured editing pace
+- Reusable duration allocation with transition-overlap accounting and source-capacity redistribution
+- Minimum feasible duration recovery when Use Every Clip conflicts with a short target
 - MP3, WAV, AAC, M4A, OGG, and FLAC background-audio import and FFprobe metadata
 - Local music playback/seek, preview volume, looping, start position, fades, and ducking configuration
 - Original-clip audio preservation, volume, and normalization configuration
 - Versioned JSON project save/open with complete settings restoration and recent projects
 - Missing background-audio recovery through Locate File or Remove Audio
 - Automatic editable output filenames based on the selected platform format
-- Mixed-orientation, mixed-frame-rate, and audio-stream normalization in the existing basic renderer
-- Default-on **Use Every Clip** guarantee with all-or-fail rendering
-- H.264/AAC MP4 generation to a user-selected path
-- Real render stages and FFmpeg progress with safe cancellation and cleanup
-- Finished-video preview inside the app
+- Mixed-orientation, mixed-frame-rate, pixel-format, aspect-ratio, and audio-stream normalization
+- Crop to Fill and Fit transforms without stretching; rotation metadata is respected
+- None, Crossfade, Fade, and Dip to Black transitions with configurable duration
+- Original audio preservation, volume control, one-pass loudness normalization, and silence for clips without audio
+- Background-music start offset, volume, looping, trimming, fade in/out, mixing, and sidechain ducking with fallback
+- Default-on **Use Every Clip** hard guarantee with an explicit feasibility result
+- Frozen, serializable RenderPlan separating edit decisions from FFmpeg execution
+- Fast and full-quality temporary preview rendering in the application temp area
+- Dedicated complete-video Review screen with Preview, Settings Changed, and Export Complete states
+- Approval export that reuses a full-quality preview or re-renders a fast preview from the exact same plan
+- FFprobe verification of duration, dimensions, FPS, streams, readability, and file size before success
+- Real render stages and FFmpeg progress with safe process cancellation and incomplete-file cleanup
+- Structured render plans, FFmpeg arguments, warnings, fallbacks, and errors in per-render logs
+- Explicit overwrite confirmation and Open File/Open Folder actions after export
 
 ## Prerequisites
 
@@ -84,6 +96,8 @@ npm run preview
 
 The smoke test requires FFmpeg and a graphical Linux session or `xvfb-run`. In a headless shell, run `xvfb-run -a npm run test:smoke`.
 
+The smoke workflow creates real mixed video/audio fixtures and verifies preview generation, preview invalidation, regeneration, fast-preview approval, full-preview reuse, final export, and FFprobe output metadata.
+
 AppImage packaging will be configured in the later packaging phase.
 
 ## Project files
@@ -103,12 +117,12 @@ src/
       filesystem/        Guarded local-media protocol
       audio/             FFprobe background-audio import
       projects/          Atomic project and recent-project persistence
-      video/             Import, planning, normalization, and render services
+      video/             Planning, allocation, filters, execution, preview, logs, and verification
   preload/               Narrow contextBridge API
   renderer/
     components/          Editor UI components
     hooks/               Import workflow hooks
-    pages/               Home and Project Editor screens
+    pages/               Home, Project Editor, and Final Preview screens
     stores/              Zustand application state
     utils/               Display formatting helpers
   shared/
@@ -125,6 +139,8 @@ tests/                   Unit tests
 - Preview URLs only resolve paths authorized during import.
 - Original videos are referenced in place and are never changed or deleted.
 - Thumbnails are cached under Electron's application data directory.
+- Preview intermediates are created under the system temp directory and never beside source media.
+- The most recent preview artifacts are retained briefly for review; normalized intermediates are removed after each render.
 
 ## Troubleshooting
 
@@ -140,10 +156,18 @@ Expand the import error in the Media panel. Confirm the source still exists, its
 
 Run `npm run build` first to expose TypeScript or bundling errors. On minimal Linux installations, Electron may also require standard desktop libraries supplied by the distribution's Chromium/Electron packages.
 
-## Phase 2 boundaries
+## Rendering architecture
 
-Phase 2 stores target-duration, transition, loudness normalization, looping, fades, and ducking intent. The existing basic renderer remains available, but it does not yet enforce target duration or mix the configured background track into the exported MP4.
+`render-planner.ts` arranges sources and creates a frozen `RenderPlan`. `segment-allocator.ts` owns pace ranges, feasibility, target allocation, capacity redistribution, and transition overlap. `render-executor.ts` consumes the plan without selecting clips again. Audio filters, preview workspace management, process execution, and FFprobe verification remain separate services.
 
-## Next: Phase 3
+Fast preview may reduce dimensions and encoding quality, but it keeps the same clip order, section timing, crop, transitions, and audio composition. Approving it performs a full-quality render from its frozen plan. A full-quality preview is copied to the selected destination without unnecessary re-encoding.
 
-Phase 3 connects the complete `ProjectRenderConfiguration` to automatic trimming, precise target-duration planning, normalization, concatenation, and background-audio processing. Advanced AI analysis, beat detection, and multiple music tracks remain out of scope.
+Any render-affecting edit marks the existing preview as **Settings Changed** and blocks approval until regeneration. The old preview remains watchable for comparison.
+
+## Phase 3 boundaries
+
+Section selection is deterministic and metadata-driven; it does not yet understand scene content, speech, faces, or visual quality. Loudness normalization is intentionally single-pass for modest Linux hardware. Phase 3 supports one background music track and black padding in Fit mode. The last few preview artifacts are retained internally, but a comparison browser is not exposed yet.
+
+## Future work
+
+AI scene understanding, semantic scoring, speech transcription, captions, beat-synchronized editing, subject-aware reframing, multiple music tracks, advanced waveform editing, nonlinear timelines, and Linux packaging remain out of scope for this phase.

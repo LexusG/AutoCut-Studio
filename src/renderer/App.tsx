@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { EditorPage } from './pages/EditorPage'
+import { FinalPreviewPage } from './pages/FinalPreviewPage'
 import { HomePage } from './pages/HomePage'
 import { useAppStore } from './stores/app-store'
 
@@ -22,5 +23,7 @@ export function App(): React.JSX.Element {
     }
   }, [setFfmpegStatus])
 
-  return screen === 'home' ? <HomePage /> : <EditorPage />
+  if (screen === 'home') return <HomePage />
+  if (screen === 'review') return <FinalPreviewPage />
+  return <EditorPage />
 }

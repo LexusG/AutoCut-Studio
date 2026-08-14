@@ -4,14 +4,15 @@ import type {
   EditingPace,
   FitMode,
   OutputFrameRate,
-  RenderQuality
+  PreviewQuality,
+  RenderQuality,
+  TransitionPreference
 } from './render'
 
 export type PlatformId = 'instagram' | 'youtube' | 'linkedin' | 'custom'
 export type Orientation = 'landscape' | 'portrait' | 'square' | 'source'
 export type VideoCodec = 'h264'
 export type AudioCodec = 'aac'
-export type TransitionPreference = 'none' | 'crossfade' | 'fade' | 'dip-to-black'
 export type TargetDurationMode = 'auto' | '15' | '30' | '60' | '90' | 'custom'
 
 export interface PlatformPreset {
@@ -51,6 +52,7 @@ export interface EditingSettings {
   useEveryClip: boolean
   targetDuration: TargetDurationSettings
   transitionPreference: TransitionPreference
+  transitionDuration: number
 }
 
 export interface AudioTrack {
@@ -95,6 +97,7 @@ export interface ProjectSettings {
   audio: ProjectAudioSettings
   outputFilename: string
   outputFilenameCustom: boolean
+  previewQuality: PreviewQuality
 }
 
 export interface ProjectFile {

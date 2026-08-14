@@ -6,7 +6,13 @@ import type {
   RecentProject,
   SavedProject
 } from './project'
-import type { RenderProgress, RenderRequest, RenderResult } from './render'
+import type {
+  ExportRenderRequest,
+  PreviewRenderOutcome,
+  PreviewRenderRequest,
+  RenderArtifact,
+  RenderProgress
+} from './render'
 
 export interface AutoCutApi {
   getFfmpegStatus: () => Promise<FfmpegStatus>
@@ -20,9 +26,12 @@ export interface AutoCutApi {
   getRecentProjects: () => Promise<RecentProject[]>
   removeRecentProject: (path: string) => Promise<RecentProject[]>
   chooseOutputPath: (suggestedName: string) => Promise<string | null>
-  renderVideo: (request: RenderRequest) => Promise<RenderResult>
+  generatePreview: (request: PreviewRenderRequest) => Promise<PreviewRenderOutcome>
+  exportApprovedPreview: (request: ExportRenderRequest) => Promise<RenderArtifact>
   cancelRender: (renderId: string) => Promise<boolean>
   onRenderProgress: (callback: (progress: RenderProgress) => void) => () => void
+  openFile: (path: string) => Promise<string>
+  showItemInFolder: (path: string) => Promise<void>
   getPathForFile: (file: File) => string
 }
 
@@ -38,7 +47,10 @@ export const IPC_CHANNELS = {
   recentProjects: 'projects:recent',
   removeRecentProject: 'projects:remove-recent',
   chooseOutput: 'files:choose-output',
-  renderVideo: 'video:render',
+  generatePreview: 'video:generate-preview',
+  exportApprovedPreview: 'video:export-approved-preview',
   cancelRender: 'video:cancel-render',
-  renderProgress: 'video:render-progress'
+  renderProgress: 'video:render-progress',
+  openFile: 'files:open',
+  showItemInFolder: 'files:show-in-folder'
 } as const
