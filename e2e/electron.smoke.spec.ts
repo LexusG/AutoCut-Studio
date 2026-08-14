@@ -3,7 +3,7 @@ import { access, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { _electron as electron, expect, test, type Page } from '@playwright/test'
+import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
 
 const execFileAsync = promisify(execFile)
 
@@ -31,6 +31,21 @@ async function createMusic(path: string, frequency: number): Promise<void> {
   ])
 }
 
+async function createPersonVideo(path: string, portrait: boolean, frequency: number): Promise<void> {
+  const image = join(process.cwd(), 'e2e', 'fixtures', 'two-people-studio.png')
+  const size = portrait ? '270:480' : '480:270'
+  const zoomSize = portrait ? '270x480' : '480x270'
+  const crop = portrait ? 'crop=270:480:195:0' : 'crop=480:270'
+  await execFileAsync('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error',
+    '-loop', '1', '-i', image,
+    '-f', 'lavfi', '-i', `sine=frequency=${frequency}:sample_rate=48000`,
+    '-vf', `scale=${size}:force_original_aspect_ratio=increase,${crop},zoompan=z='min(zoom+0.0005,1.05)':d=180:s=${zoomSize}:fps=30`,
+    '-t', '6', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', '-shortest', '-y', path
+  ])
+}
+
 async function expectPreviewReady(page: Page): Promise<void> {
   const result = page.getByRole('heading', { name: /^(Preview ready|Preview generation failed)$/ })
   await expect(result).toBeVisible({ timeout: 120_000 })
@@ -40,24 +55,25 @@ async function expectPreviewReady(page: Page): Promise<void> {
   }
 }
 
-test('completes the realistic Phase 4 Smart editing workflow', async () => {
-  test.setTimeout(240_000)
-  const fixtureDirectory = await mkdtemp(join(tmpdir(), 'autocut-phase4-smoke-'))
+test('completes the realistic Phase 5 ML, audio, and persistent-preview workflow', async () => {
+  test.setTimeout(420_000)
+  const fixtureDirectory = await mkdtemp(join(tmpdir(), 'autocut-phase5-smoke-'))
   const clips = [
-    join(fixtureDirectory, 'landscape-audio.mp4'),
-    join(fixtureDirectory, 'portrait-silent.mp4'),
+    join(fixtureDirectory, 'people-landscape.mp4'),
+    join(fixtureDirectory, 'people-portrait.mp4'),
     join(fixtureDirectory, 'square-audio.mp4'),
     join(fixtureDirectory, 'dark-landscape.mp4'),
     join(fixtureDirectory, 'portrait-pattern.mp4')
   ]
   const musicOne = join(fixtureDirectory, 'music-one.wav')
   const musicTwo = join(fixtureDirectory, 'music-two.wav')
-  const outputPath = join(fixtureDirectory, 'phase4-output.mp4')
-  const projectPath = join(fixtureDirectory, 'phase4-smoke.autocut.json')
+  const outputPath = join(fixtureDirectory, 'phase5-output.mp4')
+  const projectPath = join(fixtureDirectory, 'phase5-smoke.autocut.json')
+  const userDataPath = join(fixtureDirectory, 'user-data')
 
   await Promise.all([
-    createVideo(clips[0], 'testsrc=size=480x270:rate=30', true, 440),
-    createVideo(clips[1], 'testsrc2=size=270x480:rate=24', false),
+    createPersonVideo(clips[0], false, 440),
+    createPersonVideo(clips[1], true, 554),
     createVideo(clips[2], 'smptebars=size=360x360:rate=30', true, 660),
     createVideo(clips[3], 'color=c=0x111318:size=480x270:rate=30', false),
     createVideo(clips[4], 'rgbtestsrc=size=270x480:rate=24', false),
@@ -67,16 +83,16 @@ test('completes the realistic Phase 4 Smart editing workflow', async () => {
 
   const launchEnvironment = { ...process.env }
   delete launchEnvironment.ELECTRON_RUN_AS_NODE
-  const electronApp = await electron.launch({
-    args: ['.', `--user-data-dir=${join(fixtureDirectory, 'user-data')}`],
+  let electronApp: ElectronApplication | null = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataPath}`],
     env: { ...launchEnvironment, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' }
   })
 
   try {
-    const page = await electronApp.firstWindow()
+    let page = await electronApp.firstWindow()
     await expect(page.getByRole('heading', { name: 'AutoCut Studio' })).toBeVisible()
     await page.getByRole('button', { name: 'New Project' }).click()
-    await page.getByLabel('Project name').fill('Phase 4 Smart Smoke')
+    await page.getByLabel('Project name').fill('Phase 5 Smart Smoke')
 
     await electronApp.evaluate(({ dialog }, paths) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: paths, bookmarks: [] })
@@ -95,6 +111,8 @@ test('completes the realistic Phase 4 Smart editing workflow', async () => {
     await page.getByLabel('Blur strength').selectOption('medium')
     await page.getByLabel('Selection mode').selectOption('smart')
     await page.getByLabel('Analysis quality').selectOption('fast')
+    await page.getByText('Advanced Smart Settings').click()
+    await page.getByLabel('Prefer People').check()
     await page.getByLabel('Editing pace').selectOption('fast')
     await expect(page.getByLabel('Use Every Clip')).toBeChecked()
     await page.getByLabel('Target duration').selectOption('custom')
@@ -102,6 +120,13 @@ test('completes the realistic Phase 4 Smart editing workflow', async () => {
     await page.getByLabel('Transition preference').selectOption('crossfade')
     await page.getByLabel('Transition duration').selectOption('0.25')
     await page.getByLabel('Output quality').selectOption('draft')
+    const outputFilename = page.getByLabel('Output filename')
+    await outputFilename.click()
+    await outputFilename.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A')
+    await outputFilename.pressSequentially('Phase 5 Typed Output')
+    await expect(outputFilename).toHaveValue('Phase 5 Typed Output')
+    await outputFilename.press('Enter')
+    await expect(outputFilename).toHaveValue('Phase 5 Typed Output.mp4')
 
     for (const musicPath of [musicOne, musicTwo]) {
       await electronApp.evaluate(({ dialog }, selectedPath) => {
@@ -117,7 +142,7 @@ test('completes the realistic Phase 4 Smart editing workflow', async () => {
     await soundtrackTracks.nth(1).getByRole('slider').fill('45')
     await soundtrackTracks.nth(1).getByRole('spinbutton').fill('0.5')
     await page.getByLabel('Audio normalization').selectOption('accurate')
-    await page.getByLabel('Normalize Final Mix').check()
+    await page.getByLabel('Final mix normalization').selectOption('accurate')
     await expect(page.getByLabel('Loop Soundtrack')).toBeChecked()
     await expect(page.getByLabel('Lower Music During Clip Audio')).toBeChecked()
 
@@ -131,15 +156,17 @@ test('completes the realistic Phase 4 Smart editing workflow', async () => {
       settings: {
         output: { fitBackground: string; width: number; height: number }
         editing: { selectionMode: string; analysisQuality: string }
-        audio: { normalizationMode: string; soundtrack: { tracks: Array<{ path: string; volume: number }> } }
+        personAnalysis: { provider: string; modelVersion: string }
+        audio: { normalizationMode: string; finalMixNormalizationMode: string; soundtrack: { tracks: Array<{ path: string; volume: number }> } }
       }
     }
     expect(savedBeforeRender).toMatchObject({
-      version: 3,
+      version: 4,
       settings: {
         output: { fitBackground: 'blurred', width: 360, height: 640 },
         editing: { selectionMode: 'smart', analysisQuality: 'fast' },
-        audio: { normalizationMode: 'accurate' }
+        personAnalysis: { provider: 'mediapipe-pose-lite' },
+        audio: { normalizationMode: 'accurate', finalMixNormalizationMode: 'accurate' }
       }
     })
     expect(savedBeforeRender.settings.audio.soundtrack.tracks.map((track) => track.path)).toEqual([musicOne, musicTwo])
@@ -148,7 +175,11 @@ test('completes the realistic Phase 4 Smart editing workflow', async () => {
     await page.getByRole('button', { name: 'Generate Preview' }).click()
     await expectPreviewReady(page)
     await page.getByRole('button', { name: 'Review Preview' }).click()
-    await expect(page.getByRole('heading', { name: 'Phase 4 Smart Smoke' })).toBeVisible()
+    await page.getByRole('button', { name: 'Back to Edit' }).first().click()
+    await page.getByText('Advanced Smart Settings').click()
+    await expect(page.locator('.model-status')).toContainText('Active - MediaPipe Pose Lite')
+    await page.getByRole('button', { name: /Review/ }).click()
+    await expect(page.getByRole('heading', { name: 'Phase 5 Smart Smoke' })).toBeVisible()
     await expect(page.locator('.final-preview-video')).toHaveAttribute('src', /^autocut-media:/)
     await expect(page.locator('.review-metadata')).toContainText('360 x 640')
     await expect(page.locator('.review-metadata')).toContainText('Smart')
@@ -157,8 +188,9 @@ test('completes the realistic Phase 4 Smart editing workflow', async () => {
     await expect(page.locator('.selection-reasons')).toHaveCount(5)
     await expect(page.locator('.preview-version')).toHaveCount(1)
     await expect(page.locator('.preview-version')).toContainText('V1')
+    await page.getByRole('button', { name: 'Pin V1' }).click()
     const firstPreviewUrl = await page.locator('.final-preview-video').getAttribute('src')
-    await page.screenshot({ path: '/tmp/autocut-studio-phase-four-review.png', fullPage: true })
+    await page.screenshot({ path: '/tmp/autocut-studio-phase-five-review.png', fullPage: true })
 
     await page.getByRole('button', { name: 'Regenerate' }).click()
     await expectPreviewReady(page)
@@ -194,25 +226,59 @@ test('completes the realistic Phase 4 Smart editing workflow', async () => {
       expect.objectContaining({ codec_type: 'video', codec_name: 'h264', width: 360, height: 640 }),
       expect.objectContaining({ codec_type: 'audio', codec_name: 'aac' })
     ]))
+    const loudness = await execFileAsync('ffmpeg', [
+      '-hide_banner', '-nostats', '-i', outputPath,
+      '-af', 'loudnorm=I=-16:LRA=11:TP=-1.5:print_format=json',
+      '-f', 'null', '-'
+    ])
+    const loudnessBlock = [...loudness.stderr.matchAll(/\{[\s\S]*?"target_offset"[\s\S]*?\}/g)].at(-1)?.[0]
+    expect(loudnessBlock).toBeTruthy()
+    const measuredLoudness = JSON.parse(loudnessBlock!) as { input_i: string; input_tp: string }
+    expect(Number(measuredLoudness.input_i)).toBeGreaterThan(-17)
+    expect(Number(measuredLoudness.input_i)).toBeLessThan(-15)
+    expect(Number(measuredLoudness.input_tp)).toBeLessThanOrEqual(-1)
 
     await page.getByRole('button', { name: 'Back to Project' }).click()
     await page.getByRole('button', { name: 'Save Project' }).click()
     await expect(page.locator('.project-feedback')).toContainText('Project saved')
     const savedAfterExport = JSON.parse(await readFile(projectPath, 'utf8')) as {
-      previewHistory: Array<{ approved: boolean; artifact: { logPath: string; plan: { selectionSeed: number; segments: unknown[] } } }>
+      previewHistory: Array<{
+        approved: boolean
+        pinned: boolean
+        storage: { relativePath: string; state: string }
+        artifact: { outputPath: string; logPath: string; plan: { selectionSeed: number; segments: Array<{ selectedCandidate?: { personAnalysis?: { detected: boolean } } }> } }
+      }>
     }
     expect(savedAfterExport.previewHistory).toHaveLength(2)
     expect(savedAfterExport.previewHistory[0].approved).toBe(true)
+    expect(savedAfterExport.previewHistory[1].pinned).toBe(true)
     expect(savedAfterExport.previewHistory[0].artifact.plan.segments).toHaveLength(5)
     expect(savedAfterExport.previewHistory[0].artifact.plan.selectionSeed).toBe(1)
-    const renderLog = await readFile(savedAfterExport.previewHistory[0].artifact.logPath, 'utf8')
+    expect(savedAfterExport.previewHistory[0].artifact.outputPath).toBe('')
+    expect(savedAfterExport.previewHistory[0].storage.state).toBe('available')
+    const persistentPreviewRoot = join(userDataPath, 'storage', savedAfterExport.previewHistory[0].storage.relativePath)
+    await access(join(persistentPreviewRoot, 'preview.mp4'))
+    await access(join(persistentPreviewRoot, 'thumbnail.jpg'))
+    await access(join(persistentPreviewRoot, 'metadata.json'))
+    const renderLog = await readFile(join(persistentPreviewRoot, 'render.log'), 'utf8')
     expect(renderLog).toContain('"stage":"smart-selection"')
     expect(renderLog).toContain('"cache":"hit"')
     expect(renderLog).toContain('"stage":"soundtrack-plan"')
     expect(renderLog).toContain('"stage":"accurate-loudness-measurement"')
+    expect(renderLog).toContain('"stage":"mux-final-audio"')
+    const peopleSelections = savedAfterExport.previewHistory[0].artifact.plan.segments.filter(
+      (segment) => segment.selectedCandidate?.personAnalysis?.detected
+    )
+    expect(peopleSelections.length).toBeGreaterThanOrEqual(2)
 
     await page.getByRole('button', { name: 'Back to Home' }).click()
-    await page.locator('.recent-project-open').filter({ hasText: 'Phase 4 Smart Smoke' }).first().click()
+    await electronApp.close()
+    electronApp = await electron.launch({
+      args: ['.', `--user-data-dir=${userDataPath}`],
+      env: { ...launchEnvironment, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' }
+    })
+    page = await electronApp.firstWindow()
+    await page.locator('.recent-project-open').filter({ hasText: 'Phase 5 Smart Smoke' }).first().click()
     await expect(page.locator('.clip-card')).toHaveCount(5)
     await page.getByRole('button', { name: /Review/ }).click()
     await expect(page.locator('.preview-version')).toHaveCount(2)
@@ -225,9 +291,9 @@ test('completes the realistic Phase 4 Smart editing workflow', async () => {
     await access(outputPath)
     await page.setViewportSize({ width: 720, height: 900 })
     await expect(page.getByRole('button', { name: 'Approve & Export' })).toBeVisible()
-    await page.screenshot({ path: '/tmp/autocut-studio-phase-four-compact.png', fullPage: true })
+    await page.screenshot({ path: '/tmp/autocut-studio-phase-five-compact.png', fullPage: true })
   } finally {
-    await electronApp.close()
+    if (electronApp) await electronApp.close()
     await rm(fixtureDirectory, { recursive: true, force: true })
   }
 })

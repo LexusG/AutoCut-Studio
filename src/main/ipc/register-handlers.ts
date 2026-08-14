@@ -1,12 +1,12 @@
-import { access, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { basename, extname, isAbsolute, join, resolve } from 'node:path'
+import { access } from 'node:fs/promises'
+import { basename, extname, isAbsolute, resolve } from 'node:path'
 import { dialog, ipcMain, shell } from 'electron'
 import { AUDIO_FILE_FILTER } from '@shared/constants/audio'
 import { VIDEO_FILE_FILTER } from '@shared/constants/media'
 import {
   IPC_CHANNELS,
   type ExportRenderRequest,
+  type PersonAnalysisResponse,
   type PreviewRenderRequest,
   type ProjectFile,
   type RenderPlan,
@@ -28,6 +28,16 @@ import {
   exportApprovedPreview,
   generatePreview
 } from '../services/video/renderer'
+import {
+  deleteManagedPreview,
+  getPreviewStorageStats,
+  pruneManagedPreviews
+} from '../services/video/preview-storage'
+import {
+  MediaPipePoseLiteProvider,
+  resolvePersonAnalysisResponse
+} from '../services/video/smart/optional-ml'
+import { getPersonDetectionStatus } from '../services/video/smart/person-model'
 
 const MAX_FILES_PER_IMPORT = 250
 
@@ -115,7 +125,13 @@ function isRenderSettings(value: unknown): value is RenderSettings {
     audio.soundtrackCrossfade >= 0 &&
     audio.soundtrackCrossfade <= 5 &&
     ['off', 'fast', 'accurate'].includes(audio?.normalizationMode ?? '') &&
-    typeof audio?.normalizeFinalMix === 'boolean' &&
+    ['off', 'fast', 'accurate'].includes(audio?.finalMixNormalizationMode ?? '') &&
+    Boolean(settings.personAnalysis) &&
+    typeof settings.personAnalysis?.enabled === 'boolean' &&
+    settings.personAnalysis?.provider === 'mediapipe-pose-lite' &&
+    typeof settings.personAnalysis?.modelVersion === 'string' &&
+    typeof settings.personAnalysis?.modelHash === 'string' &&
+    typeof settings.personAnalysis?.analyzerVersion === 'string' &&
     Boolean(audio?.fadeIn) && typeof audio?.fadeIn.duration === 'number' && audio.fadeIn.duration >= 0 &&
     Boolean(audio?.fadeOut) && typeof audio?.fadeOut.duration === 'number' && audio.fadeOut.duration >= 0 &&
     (audio?.backgroundTrack == null ||
@@ -342,7 +358,7 @@ export function registerIpcHandlers(): void {
     const request = validatePreviewRequest(value)
     return generatePreview(request, (progress) => {
       if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.renderProgress, progress)
-    })
+    }, new MediaPipePoseLiteProvider(event.sender))
   })
 
   ipcMain.handle(IPC_CHANNELS.exportApprovedPreview, (event, value: unknown) => {
@@ -365,16 +381,36 @@ export function registerIpcHandlers(): void {
     shell.showItemInFolder(validateLocalPath(value, 'File'))
   })
 
-  ipcMain.handle(IPC_CHANNELS.deletePreviewFiles, async (_event, video: unknown, thumbnail: unknown) => {
-    const root = resolve(join(tmpdir(), 'autocut-studio'))
-    const videoPath = resolve(validateLocalPath(video, 'Preview'))
-    const thumbnailPath = typeof thumbnail === 'string' && thumbnail
-      ? resolve(validateLocalPath(thumbnail, 'Thumbnail'))
-      : null
-    if (!videoPath.startsWith(`${root}/`) || (thumbnailPath && !thumbnailPath.startsWith(`${root}/`))) {
-      throw new Error('Only AutoCut Studio temporary previews can be deleted.')
-    }
-    await rm(videoPath, { force: true })
-    if (thumbnailPath) await rm(thumbnailPath, { force: true })
+  ipcMain.handle(IPC_CHANNELS.deletePreview, (_event, projectId: unknown, previewId: unknown) => {
+    return deleteManagedPreview(validateStorageId(projectId, 'Project'), validateStorageId(previewId, 'Preview'))
   })
+
+  ipcMain.handle(IPC_CHANNELS.previewStorageStats, () => getPreviewStorageStats())
+
+  ipcMain.handle(IPC_CHANNELS.personDetectionStatus, () => getPersonDetectionStatus())
+
+  ipcMain.on(IPC_CHANNELS.personAnalysisResponse, (event, value: unknown) => {
+    if (!value || typeof value !== 'object') return
+    const response = value as Partial<PersonAnalysisResponse>
+    if (typeof response.requestId !== 'string') return
+    resolvePersonAnalysisResponse(event.sender.id, response as PersonAnalysisResponse)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.cleanOldPreviews, (_event, projectId: unknown, versions: unknown, protectedIds: unknown) => {
+    if (!Array.isArray(versions) || !Array.isArray(protectedIds) || !protectedIds.every((id) => typeof id === 'string')) {
+      throw new Error('The preview cleanup request is invalid.')
+    }
+    return pruneManagedPreviews(
+      validateStorageId(projectId, 'Project'),
+      versions as import('@shared/types').PreviewVersion[],
+      protectedIds
+    )
+  })
+}
+
+function validateStorageId(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value || value.length > 100 || !/^[a-zA-Z0-9_-]+$/.test(value)) {
+    throw new Error(`${label} identifier is invalid.`)
+  }
+  return value
 }

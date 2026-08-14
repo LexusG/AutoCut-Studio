@@ -7,6 +7,7 @@ import type {
   FfmpegStatus,
   ImportFailure,
   MediaClip,
+  PersonDetectionStatus,
   PlatformId,
   PreviewQuality,
   PreviewVersion,
@@ -44,6 +45,7 @@ interface AppState {
   clips: MediaClip[]
   selectedClipId: string | null
   ffmpegStatus: FfmpegStatus | null
+  personDetectionStatus: PersonDetectionStatus | null
   isImporting: boolean
   importFailures: ImportFailure[]
   recentProjects: RecentProject[]
@@ -65,6 +67,7 @@ interface AppState {
   backToEdit: () => void
   showReview: () => void
   setFfmpegStatus: (status: FfmpegStatus | null) => void
+  setPersonDetectionStatus: (status: PersonDetectionStatus | null) => void
   setImporting: (isImporting: boolean) => void
   addClips: (clips: MediaClip[]) => void
   removeClip: (id: string) => void
@@ -90,6 +93,7 @@ interface AppState {
   completeExport: (result: RenderArtifact) => void
   selectPreviewVersion: (id: string) => void
   removePreviewVersion: (id: string) => void
+  togglePreviewPinned: (id: string) => void
   restorePreviewSettings: (id: string) => void
   showDurationIssue: (issue: DurationConstraintIssue) => void
   useMinimumDuration: () => void
@@ -115,6 +119,7 @@ export const useAppStore = create<AppState>((set) => ({
   clips: [],
   selectedClipId: null,
   ffmpegStatus: null,
+  personDetectionStatus: null,
   isImporting: false,
   importFailures: [],
   recentProjects: [],
@@ -184,6 +189,7 @@ export const useAppStore = create<AppState>((set) => ({
   backToEdit: () => set({ screen: 'editor' }),
   showReview: () => set((state) => state.previewResult ? { screen: 'review' } : state),
   setFfmpegStatus: (ffmpegStatus) => set({ ffmpegStatus }),
+  setPersonDetectionStatus: (personDetectionStatus) => set({ personDetectionStatus }),
   setImporting: (isImporting) => set({ isImporting }),
   addClips: (incomingClips) => set((state) => {
     const existingPaths = new Set(state.clips.map((clip) => clip.path))
@@ -369,6 +375,12 @@ export const useAppStore = create<AppState>((set) => ({
       thumbnailUrl: previewResult.thumbnailUrl,
       approved: false,
       outdated: false,
+      pinned: false,
+      storage: {
+        key: previewResult.plan.id,
+        relativePath: `projects/${state.projectId}/previews/${previewResult.plan.id}`,
+        state: 'available'
+      },
       presetName: getPresetDisplayName(state.projectSettings),
       pace: state.projectSettings.editing.pace,
       selectionMode: state.projectSettings.editing.selectionMode,
@@ -421,6 +433,12 @@ export const useAppStore = create<AppState>((set) => ({
       projectDirty: true
     }
   }),
+  togglePreviewPinned: (id) => set((state) => ({
+    previewHistory: state.previewHistory.map((version) =>
+      version.id === id ? { ...version, pinned: !version.pinned } : version
+    ),
+    projectDirty: true
+  })),
   restorePreviewSettings: (id) => set((state) => {
     const version = state.previewHistory.find((item) => item.id === id)
     if (!version) return state

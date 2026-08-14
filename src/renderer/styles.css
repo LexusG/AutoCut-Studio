@@ -2521,6 +2521,60 @@ code {
   animation: spin 900ms linear infinite;
 }
 
+.model-status {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border-left: 2px solid #5dbb8a;
+  background: #171a19;
+}
+
+.model-status span,
+.storage-location {
+  color: #8b8d94;
+  font-size: 9px;
+}
+
+.model-status strong {
+  color: #d8dadc;
+  font-size: 10px;
+}
+
+.model-status-unavailable {
+  border-left-color: #d58a61;
+}
+
+.storage-location {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storage-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.storage-actions button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.storage-actions button:first-child {
+  width: 32px;
+  padding: 0;
+}
+
+.export-technical-details {
+  margin-top: 14px;
+  color: #aeb0b5;
+  font-size: 10px;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

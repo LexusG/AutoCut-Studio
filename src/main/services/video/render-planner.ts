@@ -8,6 +8,7 @@ import type {
   RenderPlan,
   RenderSettings
 } from '@shared/types'
+import { LOUDNESS_TARGET } from './loudness-normalizer'
 import type { ProbedMedia } from './metadata'
 import { allocateSegmentDurations, getPaceRange } from './segment-allocator'
 
@@ -214,6 +215,8 @@ export function buildRenderPlan(
     selectionMode: settings.selectionMode,
     selectionSeed: settings.selectionSeed + generation,
     analysisVersion: null,
+    personAnalysis: structuredClone(settings.personAnalysis),
+    finalLoudnessTarget: { ...LOUDNESS_TARGET },
     fitBackground: settings.fitBackground,
     blurStrength: settings.blurStrength,
     previewVersion: generation + 1

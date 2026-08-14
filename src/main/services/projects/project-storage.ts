@@ -4,6 +4,12 @@ import { app } from 'electron'
 import type { LoadedProject, ProjectFile, RecentProject, SavedProject } from '@shared/types'
 import { parseProjectFile, serializeProjectFile } from '@shared/utils/project-codec'
 import { allowMediaPath, createMediaUrl } from '../filesystem/media-access'
+import {
+  regeneratePreviewThumbnail,
+  resolvePreviewVersion,
+  updatePreviewMetadata
+} from '../video/preview-storage'
+import { detectFfmpeg } from '../ffmpeg/binaries'
 
 const MAX_RECENT_PROJECTS = 12
 
@@ -25,36 +31,21 @@ async function refreshLocalReferences(project: ProjectFile): Promise<ProjectFile
     ? await refreshTrack(project.settings.audio.backgroundTrack)
     : null
   const tracks = await Promise.all(project.settings.audio.soundtrack.tracks.map(refreshTrack))
-  const previewHistory = await Promise.all(project.previewHistory.map(async (version) => {
-    try {
-      await access(version.artifact.outputPath)
-      allowMediaPath(version.artifact.outputPath)
-      let thumbnailUrl = ''
-      try {
-        await access(version.thumbnailPath)
-        allowMediaPath(version.thumbnailPath)
-        thumbnailUrl = createMediaUrl(version.thumbnailPath)
-      } catch {
-        // The video remains usable when an optional thumbnail was cleaned externally.
-      }
-      return {
-        ...version,
-        thumbnailUrl,
-        artifact: {
-          ...version.artifact,
-          outputUrl: createMediaUrl(version.artifact.outputPath),
-          thumbnailUrl
+  let previewHistory = await Promise.all(
+    project.previewHistory.map((version) => resolvePreviewVersion(project.id, version))
+  )
+  if (previewHistory.some((version) => version.storage.state === 'available' && !version.thumbnailPath)) {
+    const ffmpeg = await detectFfmpeg()
+    if (ffmpeg.ffmpeg.path) {
+      previewHistory = await Promise.all(previewHistory.map(async (version) => {
+        try {
+          return await regeneratePreviewThumbnail(ffmpeg.ffmpeg.path!, project.id, version)
+        } catch {
+          return version
         }
-      }
-    } catch {
-      return {
-        ...version,
-        outdated: true,
-        thumbnailUrl: '',
-        artifact: { ...version.artifact, outputUrl: '', thumbnailUrl: '' }
-      }
+      }))
     }
-  }))
+  }
   return {
     ...project,
     settings: {
@@ -112,6 +103,7 @@ export async function saveProjectFile(filePath: string, project: ProjectFile): P
   const temporaryPath = `${filePath}.tmp-${process.pid}`
   await mkdir(dirname(filePath), { recursive: true })
   try {
+    await Promise.all(project.previewHistory.map((version) => updatePreviewMetadata(project.id, version)))
     await writeFile(temporaryPath, serializeProjectFile(project), 'utf8')
     await rename(temporaryPath, filePath)
   } finally {

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { ChevronDown, Gauge, Scissors, SlidersHorizontal, Video } from 'lucide-react'
 import type {
   AspectRatio,
@@ -10,6 +11,7 @@ import { validateProjectSettings } from '@shared/utils/project-validation'
 import { useAppStore } from '../stores/app-store'
 import { AudioPanel } from './AudioPanel'
 import { PlatformPresetSelector } from './PlatformPresetSelector'
+import { StoragePanel } from './StoragePanel'
 
 const aspectDimensions: Record<Exclude<AspectRatio, 'original'>, { width: number; height: number }> = {
   '16:9': { width: 1920, height: 1080 },
@@ -46,6 +48,9 @@ export function SettingsPanel(): React.JSX.Element {
   const updateTargetDuration = useAppStore((state) => state.updateTargetDuration)
   const setOutputFilename = useAppStore((state) => state.setOutputFilename)
   const setPreviewQuality = useAppStore((state) => state.setPreviewQuality)
+  const personStatus = useAppStore((state) => state.personDetectionStatus)
+  const [outputFilenameDraft, setOutputFilenameDraft] = useState(settings.outputFilename)
+  useEffect(() => setOutputFilenameDraft(settings.outputFilename), [settings.outputFilename])
   const warnings = validateProjectSettings(settings, clipCount).filter(
     (issue) => issue.severity === 'warning'
   )
@@ -83,7 +88,7 @@ export function SettingsPanel(): React.JSX.Element {
     <aside className="settings-panel" aria-label="Project configuration">
       <div className="settings-heading">
         <div><SlidersHorizontal size={17} /><h2>Project Settings</h2></div>
-        <span>PHASE 4</span>
+        <span>PHASE 5</span>
       </div>
 
       <div className="settings-scroll">
@@ -193,6 +198,7 @@ export function SettingsPanel(): React.JSX.Element {
                 </label>
                 <details className="smart-preferences">
                   <summary>Advanced Smart Settings</summary>
+                  <div className={`model-status model-status-${personStatus?.state ?? 'ready'}`}><span>Person Detection</span><strong>{personStatus?.label ?? 'Checking local model'}</strong>{personStatus?.detail && <small>{personStatus.detail} Smart Selection will continue without person scoring.</small>}</div>
                   <ToggleSetting label="Prefer People" checked={editing.smartPreferences.preferPeople} onChange={(preferPeople) => updateEditing('smartPreferences', { ...editing.smartPreferences, preferPeople })} />
                   <ToggleSetting label="Prefer Motion" checked={editing.smartPreferences.preferMotion} onChange={(preferMotion) => updateEditing('smartPreferences', { ...editing.smartPreferences, preferMotion })} />
                   <ToggleSetting label="Prefer Clear Footage" checked={editing.smartPreferences.preferClearFootage} onChange={(preferClearFootage) => updateEditing('smartPreferences', { ...editing.smartPreferences, preferClearFootage })} />
@@ -260,6 +266,8 @@ export function SettingsPanel(): React.JSX.Element {
 
         <AudioPanel />
 
+        <StoragePanel />
+
         <details className="settings-details" open>
           <summary><Gauge size={14} /> Export Settings <ChevronDown size={13} /></summary>
           <div className="settings-details-body">
@@ -280,7 +288,18 @@ export function SettingsPanel(): React.JSX.Element {
             </label>
             <label className="stacked-setting">
               <span>Output filename</span>
-              <input value={settings.outputFilename} onChange={(event) => setOutputFilename(event.target.value)} />
+              <input
+                value={outputFilenameDraft}
+                onChange={(event) => setOutputFilenameDraft(event.target.value)}
+                onBlur={() => setOutputFilename(outputFilenameDraft)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur()
+                  if (event.key === 'Escape') {
+                    setOutputFilenameDraft(settings.outputFilename)
+                    event.currentTarget.blur()
+                  }
+                }}
+              />
             </label>
             <div className="codec-summary"><span>Video</span><strong>H.264</strong><span>Audio</span><strong>AAC</strong></div>
           </div>

@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, protocol } from 'electron'
 import { registerIpcHandlers } from './ipc/register-handlers'
 import { registerMediaProtocol } from './services/filesystem/media-access'
+import { registerAppAssetProtocol } from './services/filesystem/app-asset-access'
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -12,6 +13,15 @@ protocol.registerSchemesAsPrivileged([
       supportFetchAPI: true,
       corsEnabled: true,
       stream: true
+    }
+  },
+  {
+    scheme: 'autocut-asset',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true
     }
   }
 ])
@@ -49,6 +59,7 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(() => {
   registerMediaProtocol()
+  registerAppAssetProtocol()
   registerIpcHandlers()
   createWindow()
 

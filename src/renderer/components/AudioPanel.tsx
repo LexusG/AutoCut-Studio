@@ -113,7 +113,7 @@ export function AudioPanel(): React.JSX.Element {
         <ToggleRow label="Preserve Original Clip Audio" checked={audio.preserveOriginalAudio} onChange={(value) => updateAudio('preserveOriginalAudio', value)} />
         <label className={`range-setting ${!audio.preserveOriginalAudio ? 'setting-disabled' : ''}`}><span>Original Clip Audio Volume <strong>{audio.originalAudioVolume}%</strong></span><input type="range" min="0" max="100" value={audio.originalAudioVolume} disabled={!audio.preserveOriginalAudio} onChange={(event) => updateAudio('originalAudioVolume', Number(event.target.value))} /></label>
         <label className="stacked-setting"><span>Audio normalization</span><select value={audio.normalizationMode} onChange={(event) => updateAudio('normalizationMode', event.target.value as typeof audio.normalizationMode)}><option value="off">Off</option><option value="fast">Fast</option><option value="accurate">Accurate</option></select></label>
-        <ToggleRow label="Normalize Final Mix" checked={audio.normalizeFinalMix} onChange={(value) => updateAudio('normalizeFinalMix', value)} />
+        <label className="stacked-setting"><span>Final mix normalization</span><select value={audio.finalMixNormalizationMode} onChange={(event) => updateAudio('finalMixNormalizationMode', event.target.value as typeof audio.finalMixNormalizationMode)}><option value="off">Off</option><option value="fast">Fast</option><option value="accurate">Accurate</option></select></label>
         <ToggleRow label="Lower Music During Clip Audio" checked={audio.duckMusicDuringClipAudio} onChange={(value) => updateAudio('duckMusicDuringClipAudio', value)} />
       </div>
     </details>

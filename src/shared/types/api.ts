@@ -3,6 +3,8 @@ import type {
   AudioImportResult,
   LoadedProject,
   ProjectFile,
+  PreviewStorageStats,
+  PreviewVersion,
   RecentProject,
   SavedProject
 } from './project'
@@ -13,6 +15,32 @@ import type {
   RenderArtifact,
   RenderProgress
 } from './render'
+import type { PersonAnalysisConfiguration, PersonAnalysisSummary } from './render'
+
+export interface PersonAnalysisFrame {
+  timestamp: number
+  dataUrl: string
+}
+
+export interface PersonAnalysisRequest {
+  requestId: string
+  frames: PersonAnalysisFrame[]
+  configuration: PersonAnalysisConfiguration
+}
+
+export interface PersonAnalysisResponse {
+  requestId: string
+  result: PersonAnalysisSummary | null
+  error: string | null
+}
+
+export interface PersonDetectionStatus {
+  state: 'ready' | 'active' | 'unavailable'
+  label: string
+  provider: string
+  modelVersion: string
+  detail: string | null
+}
 
 export interface AutoCutApi {
   getFfmpegStatus: () => Promise<FfmpegStatus>
@@ -32,7 +60,17 @@ export interface AutoCutApi {
   onRenderProgress: (callback: (progress: RenderProgress) => void) => () => void
   openFile: (path: string) => Promise<string>
   showItemInFolder: (path: string) => Promise<void>
-  deletePreviewFiles: (videoPath: string, thumbnailPath: string) => Promise<void>
+  deletePreview: (projectId: string, previewId: string) => Promise<void>
+  getPreviewStorageStats: () => Promise<PreviewStorageStats>
+  cleanOldPreviews: (
+    projectId: string,
+    versions: PreviewVersion[],
+    protectedIds: string[]
+  ) => Promise<string[]>
+  getPersonDetectionStatus: () => Promise<PersonDetectionStatus>
+  onPersonAnalysisRequest: (callback: (request: PersonAnalysisRequest) => void) => () => void
+  onPersonAnalysisCancel: (callback: (requestId: string) => void) => () => void
+  submitPersonAnalysisResponse: (response: PersonAnalysisResponse) => void
   getPathForFile: (file: File) => string
 }
 
@@ -54,5 +92,11 @@ export const IPC_CHANNELS = {
   renderProgress: 'video:render-progress',
   openFile: 'files:open',
   showItemInFolder: 'files:show-in-folder',
-  deletePreviewFiles: 'preview:delete-files'
+  deletePreview: 'preview:delete',
+  previewStorageStats: 'preview:storage-stats',
+  cleanOldPreviews: 'preview:clean-old',
+  personDetectionStatus: 'person:status',
+  personAnalysisRequest: 'person:analyze-request',
+  personAnalysisResponse: 'person:analyze-response',
+  personAnalysisCancel: 'person:analyze-cancel'
 } as const

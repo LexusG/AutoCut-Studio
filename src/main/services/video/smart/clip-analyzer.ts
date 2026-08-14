@@ -1,8 +1,16 @@
-import type { AnalysisQuality, RenderSettings, SelectedCandidateMetadata } from '@shared/types'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type {
+  AnalysisQuality,
+  PersonAnalysisSummary,
+  RenderSettings,
+  SelectedCandidateMetadata
+} from '@shared/types'
 import { runProcess } from '../../ffmpeg/process'
 import { generateCandidateWindows } from './candidate-generator'
-import { UnavailableMLAnalyzer, type OptionalMLAnalyzer } from './optional-ml'
-import { analysisReasons, scoreCandidate, type RawCandidateMetrics } from './scoring'
+import { type PersonPresenceProvider, UnavailablePersonPresenceProvider } from './optional-ml'
+import { analysisReasons, PERSON_ANALYSIS_POLICY, scoreCandidate, type RawCandidateMetrics } from './scoring'
 
 export interface AnalyzedCandidate {
   start: number
@@ -63,7 +71,7 @@ export async function analyzeClipCandidates(
   quality: AnalysisQuality,
   settings: RenderSettings,
   signal: AbortSignal,
-  mlAnalyzer: OptionalMLAnalyzer = new UnavailableMLAnalyzer()
+  personProvider: PersonPresenceProvider = new UnavailablePersonPresenceProvider()
 ): Promise<AnalyzedCandidate[]> {
   const windows = generateCandidateWindows(source.duration, segmentDuration, quality)
   const candidates: AnalyzedCandidate[] = []
@@ -78,11 +86,54 @@ export async function analyzeClipCandidates(
     ]
     if (source.hasAudio) args.push('-af', 'volumedetect')
     args.push('-f', 'null', '-')
-    const [process, ml] = await Promise.all([
-      runProcess(ffmpegPath, args, { signal }),
-      mlAnalyzer.analyzeFrame(source.path, window.start + window.duration / 2, signal)
-    ])
-    const metrics = metricsFromOutput(`${process.stdout}\n${process.stderr}`, source.hasAudio, ml.personPresence)
+    const process = await runProcess(ffmpegPath, args, { signal })
+    let personAnalysis: PersonAnalysisSummary
+    try {
+      const sampleCount = PERSON_ANALYSIS_POLICY.sampling[quality]
+      const directory = await mkdtemp(join(tmpdir(), 'autocut-person-'))
+      try {
+        const rate = sampleCount / Math.max(0.1, window.duration)
+        await runProcess(ffmpegPath, [
+          '-hide_banner', '-loglevel', 'error',
+          '-ss', window.start.toFixed(3),
+          '-t', window.duration.toFixed(3),
+          '-i', source.path,
+          '-vf', `fps=${rate.toFixed(6)}:round=up,scale=256:-2:flags=bilinear`,
+          '-frames:v', String(sampleCount),
+          '-q:v', '4',
+          '-y', join(directory, 'frame-%03d.jpg')
+        ], { signal })
+        const names = (await readdir(directory)).filter((name) => name.endsWith('.jpg')).sort()
+        const frames = await Promise.all(names.map(async (name, index) => ({
+          timestamp: window.start + ((index + 0.5) / Math.max(1, names.length)) * window.duration,
+          dataUrl: `data:image/jpeg;base64,${(await readFile(join(directory, name))).toString('base64')}`
+        })))
+        personAnalysis = await personProvider.analyzeFrames(frames, settings.personAnalysis, signal)
+      } finally {
+        await rm(directory, { recursive: true, force: true })
+      }
+    } catch (error) {
+      if (signal.aborted) throw error
+      personAnalysis = {
+        detected: false,
+        confidence: 0,
+        sampledFrames: 0,
+        framesContainingPerson: 0,
+        presenceRatio: 0,
+        averageConfidence: 0,
+        maximumConfidence: 0,
+        landmarkQuality: null,
+        provider: settings.personAnalysis.provider,
+        modelVersion: settings.personAnalysis.modelVersion,
+        analyzerVersion: settings.personAnalysis.analyzerVersion,
+        warnings: [error instanceof Error ? error.message : String(error)]
+      }
+    }
+    const metrics = metricsFromOutput(
+      `${process.stdout}\n${process.stderr}`,
+      source.hasAudio,
+      personAnalysis.confidence
+    )
     if (candidates.length > 0) {
       const prior = candidates[candidates.length - 1].metadata.scores
       const similarity = 1 - (
@@ -99,8 +150,9 @@ export async function analyzeClipCandidates(
       metadata: {
         candidateId: window.id,
         scores,
-        reasons: analysisReasons(scores),
-        analysisFallback: false
+        reasons: analysisReasons(scores, personAnalysis.detected),
+        analysisFallback: false,
+        personAnalysis
       }
     })
   }

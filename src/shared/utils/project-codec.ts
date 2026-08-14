@@ -29,6 +29,7 @@ function hydrateSettings(value: unknown): ProjectSettings {
       ...(raw.editing?.smartPreferences ?? {})
     }
   }
+  const legacyAudio = raw.audio as (Partial<ProjectSettings['audio']> & { normalizeFinalMix?: boolean }) | undefined
   const audio = {
     ...defaults.audio,
     ...(raw.audio ?? {}),
@@ -47,7 +48,11 @@ function hydrateSettings(value: unknown): ProjectSettings {
       }))
     }
   }
-  const settings: ProjectSettings = { ...defaults, ...raw, output, editing, audio }
+  const personAnalysis = {
+    ...defaults.personAnalysis,
+    ...(raw.personAnalysis ?? {})
+  }
+  const settings: ProjectSettings = { ...defaults, ...raw, output, editing, audio, personAnalysis }
   if (settings.audio.soundtrack.tracks.length === 0 && settings.audio.backgroundTrack) {
     settings.audio.soundtrack = {
       enabled: true,
@@ -60,6 +65,8 @@ function hydrateSettings(value: unknown): ProjectSettings {
   }
   settings.audio.normalizationMode = raw.audio?.normalizationMode
     ?? (settings.audio.normalizeClipAudio ? 'fast' : 'off')
+  settings.audio.finalMixNormalizationMode = raw.audio?.finalMixNormalizationMode
+    ?? (legacyAudio?.normalizeFinalMix === true ? 'fast' : 'off')
   return settings
 }
 
@@ -87,12 +94,20 @@ function serializePreview(version: PreviewVersion): PreviewVersion {
   return {
     ...version,
     thumbnailUrl: '',
-    artifact: { ...version.artifact, outputUrl: '', thumbnailUrl: '' },
+    thumbnailPath: '',
+    artifact: {
+      ...version.artifact,
+      outputPath: '',
+      outputUrl: '',
+      logPath: '',
+      thumbnailPath: '',
+      thumbnailUrl: ''
+    },
     settingsSnapshot: clearSettingsMediaUrls(version.settingsSnapshot)
   }
 }
 
-function hydratePreviewVersion(value: unknown): PreviewVersion | null {
+function hydratePreviewVersion(value: unknown, projectId: string): PreviewVersion | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Partial<PreviewVersion>
   const artifact = raw.artifact
@@ -120,18 +135,52 @@ function hydratePreviewVersion(value: unknown): PreviewVersion | null {
     const thumbnailPath = typeof raw.thumbnailPath === 'string'
       ? raw.thumbnailPath
       : typeof artifact.thumbnailPath === 'string' ? artifact.thumbnailPath : ''
+    const storage = raw.storage && typeof raw.storage === 'object'
+      ? {
+          key: typeof raw.storage.key === 'string' ? raw.storage.key : raw.id,
+          relativePath: typeof raw.storage.relativePath === 'string'
+            ? raw.storage.relativePath
+            : `projects/${projectId}/previews/${raw.id}`,
+          state: raw.storage.state === 'available' || raw.storage.state === 'migrating'
+            ? raw.storage.state
+            : 'missing' as const
+        }
+      : {
+          key: raw.id,
+          relativePath: `projects/${projectId}/previews/${raw.id}`,
+          state: artifact.outputPath ? 'migrating' as const : 'missing' as const
+        }
     return {
       ...raw,
       artifact: {
         ...artifact,
+        plan: {
+          ...plan,
+          audio: {
+            ...plan.audio,
+            finalMixNormalizationMode: plan.audio.finalMixNormalizationMode
+              ?? ((plan.audio as { normalizeFinalMix?: boolean }).normalizeFinalMix ? 'fast' : 'off')
+          },
+          personAnalysis: plan.personAnalysis ?? {
+            enabled: true,
+            provider: 'mediapipe-pose-lite',
+            modelVersion: 'pose-landmarker-lite-2023-04-17',
+            modelHash: '59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a',
+            analyzerVersion: 'phase5-person-v1'
+          },
+          finalLoudnessTarget: plan.finalLoudnessTarget ?? { integrated: -16, range: 11, truePeak: -1.5 }
+        },
         outputUrl: '',
         thumbnailPath,
-        thumbnailUrl: ''
+        thumbnailUrl: '',
+        finalLoudness: artifact.finalLoudness ?? null
       },
       thumbnailPath,
       thumbnailUrl: '',
       approved: raw.approved === true,
       outdated: raw.outdated === true,
+      pinned: raw.pinned === true,
+      storage,
       presetName: typeof raw.presetName === 'string' ? raw.presetName : 'Custom',
       pace: ['slow', 'normal', 'fast'].includes(raw.pace ?? '') ? raw.pace! : plan.pace,
       selectionMode: raw.selectionMode === 'smart' ? 'smart' : 'classic',
@@ -161,16 +210,20 @@ export function parseProjectFile(contents: string): ProjectFile {
   }
   if (!parsed || typeof parsed !== 'object') throw new Error('The project file is invalid.')
   const raw = parsed as Record<string, unknown>
-  if (raw.version !== 2 && raw.version !== 3) throw new Error('This project version is not supported.')
+  if (raw.version !== 2 && raw.version !== 3 && raw.version !== 4) {
+    throw new Error('This project version is not supported.')
+  }
   if (typeof raw.id !== 'string' || !raw.id) throw new Error('The project identifier is missing.')
   if (!Array.isArray(raw.sourcePaths) || !raw.sourcePaths.every((path) => typeof path === 'string')) {
     throw new Error('The project source list is invalid.')
   }
-  const previewHistory = raw.version === 3 && Array.isArray(raw.previewHistory)
-    ? raw.previewHistory.map(hydratePreviewVersion).filter((item): item is PreviewVersion => item !== null)
+  const previewHistory = (raw.version === 3 || raw.version === 4) && Array.isArray(raw.previewHistory)
+    ? raw.previewHistory
+        .map((value) => hydratePreviewVersion(value, raw.id as string))
+        .filter((item): item is PreviewVersion => item !== null)
     : []
   return {
-    version: 3,
+    version: 4,
     id: raw.id,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString(),
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),

@@ -12,6 +12,43 @@ export type AnalysisQuality = 'fast' | 'balanced' | 'detailed'
 export type FitBackgroundMode = 'black' | 'blurred'
 export type BlurStrength = 'low' | 'medium' | 'high'
 export type AudioNormalizationMode = 'off' | 'fast' | 'accurate'
+export type FinalMixNormalizationMode = AudioNormalizationMode
+
+export interface PersonAnalysisConfiguration {
+  enabled: boolean
+  provider: 'mediapipe-pose-lite'
+  modelVersion: string
+  modelHash: string
+  analyzerVersion: string
+}
+
+export interface PersonAnalysisSummary {
+  detected: boolean
+  confidence: number
+  sampledFrames: number
+  framesContainingPerson: number
+  presenceRatio: number
+  averageConfidence: number
+  maximumConfidence: number
+  landmarkQuality: number | null
+  provider: string
+  modelVersion: string
+  analyzerVersion: string
+  warnings: string[]
+}
+
+export interface LoudnessVerification {
+  requestedMode: FinalMixNormalizationMode
+  appliedMode: FinalMixNormalizationMode
+  targetIntegrated: number
+  targetTruePeak: number
+  targetLoudnessRange: number
+  measuredIntegrated: number | null
+  measuredTruePeak: number | null
+  measuredLoudnessRange: number | null
+  targetDifference: number | null
+  fallbackReason: string | null
+}
 
 export interface RenderBackgroundTrack {
   path: string
@@ -44,7 +81,7 @@ export interface RenderAudioSettings {
   soundtrackTracks: RenderSoundtrackTrack[]
   soundtrackCrossfade: number
   normalizationMode: AudioNormalizationMode
-  normalizeFinalMix: boolean
+  finalMixNormalizationMode: FinalMixNormalizationMode
 }
 
 export interface RenderSettings {
@@ -63,6 +100,7 @@ export interface RenderSettings {
   transitionPreference: TransitionPreference
   transitionDuration: number
   audio: RenderAudioSettings
+  personAnalysis: PersonAnalysisConfiguration
   selectionMode: SelectionMode
   analysisQuality: AnalysisQuality
   smartPreferences: {
@@ -94,6 +132,7 @@ export interface SelectedCandidateMetadata {
   scores: CandidateScores
   reasons: string[]
   analysisFallback: boolean
+  personAnalysis?: PersonAnalysisSummary
 }
 
 export interface RenderPlanTransition {
@@ -145,6 +184,12 @@ export interface RenderPlan {
   selectionMode: SelectionMode
   selectionSeed: number
   analysisVersion: string | null
+  personAnalysis: PersonAnalysisConfiguration
+  finalLoudnessTarget: {
+    integrated: number
+    range: number
+    truePeak: number
+  }
   fitBackground: FitBackgroundMode
   blurStrength: BlurStrength
   previewVersion: number
@@ -165,11 +210,13 @@ export interface ExportRenderRequest {
   plan: RenderPlan
   previewPath: string
   previewQuality: PreviewQuality
+  previewFinalLoudness?: LoudnessVerification | null
 }
 
 export type RenderStage =
   | 'Analyzing clips'
   | 'Detecting scenes'
+  | 'Detecting people'
   | 'Evaluating candidate segments'
   | 'Planning edit'
   | 'Preparing clips'
@@ -178,6 +225,7 @@ export type RenderStage =
   | 'Processing source audio'
   | 'Processing music'
   | 'Mixing audio'
+  | 'Normalizing final mix'
   | 'Encoding preview'
   | 'Encoding export'
   | 'Verifying output'
@@ -211,6 +259,7 @@ export interface RenderArtifact {
   logPath: string
   thumbnailPath: string
   thumbnailUrl: string
+  finalLoudness: LoudnessVerification | null
 }
 
 export interface DurationConstraintIssue {
@@ -255,7 +304,14 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
     soundtrackTracks: [],
     soundtrackCrossfade: 1.5,
     normalizationMode: 'fast',
-    normalizeFinalMix: false
+    finalMixNormalizationMode: 'off'
+  },
+  personAnalysis: {
+    enabled: true,
+    provider: 'mediapipe-pose-lite',
+    modelVersion: 'pose-landmarker-lite-2023-04-17',
+    modelHash: '59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a',
+    analyzerVersion: 'phase5-person-v1'
   },
   selectionMode: 'classic',
   analysisQuality: 'balanced',

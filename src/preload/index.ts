@@ -28,8 +28,23 @@ const api: AutoCutApi = {
   },
   openFile: (path) => ipcRenderer.invoke(IPC_CHANNELS.openFile, path),
   showItemInFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.showItemInFolder, path),
-  deletePreviewFiles: (videoPath, thumbnailPath) =>
-    ipcRenderer.invoke(IPC_CHANNELS.deletePreviewFiles, videoPath, thumbnailPath),
+  deletePreview: (projectId, previewId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.deletePreview, projectId, previewId),
+  getPreviewStorageStats: () => ipcRenderer.invoke(IPC_CHANNELS.previewStorageStats),
+  cleanOldPreviews: (projectId, versions, protectedIds) =>
+    ipcRenderer.invoke(IPC_CHANNELS.cleanOldPreviews, projectId, versions, protectedIds),
+  getPersonDetectionStatus: () => ipcRenderer.invoke(IPC_CHANNELS.personDetectionStatus),
+  onPersonAnalysisRequest: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, request: Parameters<typeof callback>[0]): void => callback(request)
+    ipcRenderer.on(IPC_CHANNELS.personAnalysisRequest, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.personAnalysisRequest, listener)
+  },
+  onPersonAnalysisCancel: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, requestId: string): void => callback(requestId)
+    ipcRenderer.on(IPC_CHANNELS.personAnalysisCancel, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.personAnalysisCancel, listener)
+  },
+  submitPersonAnalysisResponse: (response) => ipcRenderer.send(IPC_CHANNELS.personAnalysisResponse, response),
   getPathForFile: (file) => webUtils.getPathForFile(file)
 }
 

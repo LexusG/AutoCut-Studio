@@ -1,6 +1,7 @@
 import { appendFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
+  LoudnessVerification,
   PreviewQuality,
   RenderPlan,
   RenderPlanSegment,
@@ -11,7 +12,11 @@ import type {
 import { ProcessExecutionError, runProcess } from '../ffmpeg/process'
 import { musicMixFilters, sourceAudioFilter } from './audio-filters'
 import { prepareSoundtrack } from './soundtrack-processor'
-import { fastLoudnessFilter, measureLoudness, type LoudnessMeasurements } from './loudness-normalizer'
+import {
+  measureLoudness,
+  normalizeFinalMixAudio,
+  type LoudnessMeasurements
+} from './loudness-normalizer'
 
 interface QualityOptions {
   preset: string
@@ -235,9 +240,11 @@ function compositionArgs(
   options: ExecuteRenderOptions,
   normalizedPaths: string[],
   ducking: boolean,
-  soundtrackPath: string | null
+  soundtrackPath: string | null,
+  videoPath: string,
+  mixPath: string
 ): string[] {
-  const args = ['-hide_banner', '-loglevel', 'error']
+  const args = ['-hide_banner', '-loglevel', 'error', '-y']
   for (const path of normalizedPaths) args.push('-i', path)
   const background = soundtrackPath
     ? { path: soundtrackPath, duration: options.plan.expectedDuration, missing: false }
@@ -271,35 +278,36 @@ function compositionArgs(
     )
     audioLabel = 'finalaudio'
   }
-  if (options.plan.audio.normalizeFinalMix) {
-    filters.push(`[${audioLabel}]${fastLoudnessFilter()}[programaudio]`)
-    audioLabel = 'programaudio'
-  }
-
   const quality = options.kind === 'preview' && options.previewQuality === 'fast'
     ? qualityOptions.draft
     : qualityOptions[options.plan.output.quality]
   args.push(
     '-filter_complex', filters.join(';'),
     '-map', '[finalv]',
-    '-map', `[${audioLabel}]`,
+    '-an',
     '-c:v', 'libx264',
     '-preset', quality.preset,
     '-crf', quality.crf.toString(),
-    '-c:a', 'aac',
-    '-b:a', '192k',
+    '-t', options.plan.expectedDuration.toFixed(3),
+    '-movflags', '+faststart',
+    videoPath,
+    '-map', `[${audioLabel}]`,
+    '-vn',
+    '-c:a', 'pcm_s24le',
     '-ar', '48000',
     '-ac', '2',
     '-t', options.plan.expectedDuration.toFixed(3),
-    '-movflags', '+faststart',
     '-progress', 'pipe:1',
     '-nostats',
-    '-y', options.outputPath
+    mixPath
   )
   return args
 }
 
-export async function executeRender(options: ExecuteRenderOptions): Promise<{ duckingFallback: boolean }> {
+export async function executeRender(options: ExecuteRenderOptions): Promise<{
+  duckingFallback: boolean
+  finalLoudness: LoudnessVerification
+}> {
   const dimensions = renderDimensions(options.plan, options.previewQuality)
   await mkdir(options.normalizedDirectory, { recursive: true })
   const normalizedPaths: string[] = []
@@ -324,8 +332,11 @@ export async function executeRender(options: ExecuteRenderOptions): Promise<{ du
   const hasMusic = Boolean(soundtrackPath || (options.plan.audio.backgroundTrack && !options.plan.audio.backgroundTrack.missing))
   options.onStage(options.plan.segments.length > 1 ? 'Creating transitions' : hasMusic ? 'Processing music' : options.kind === 'preview' ? 'Encoding preview' : 'Encoding export')
   const shouldDuck = hasMusic && options.plan.audio.duckMusicDuringClipAudio && options.plan.audio.preserveOriginalAudio
+  const videoPath = join(options.normalizedDirectory, 'composition-video.mp4')
+  const mixPath = join(options.normalizedDirectory, 'final-mix.wav')
+  const normalizedMixPath = join(options.normalizedDirectory, 'final-mix-normalized.wav')
   const runComposition = async (ducking: boolean): Promise<void> => {
-    const args = compositionArgs(options, normalizedPaths, ducking, soundtrackPath)
+    const args = compositionArgs(options, normalizedPaths, ducking, soundtrackPath, videoPath, mixPath)
     await logCommand(options.logPath, ducking ? 'compose-with-ducking' : 'compose', options.ffmpegPath, args)
     await runProcess(options.ffmpegPath, args, {
       signal: options.signal,
@@ -335,10 +346,10 @@ export async function executeRender(options: ExecuteRenderOptions): Promise<{ du
     })
   }
 
+  let duckingFallback = false
   try {
     options.onStage(hasMusic ? 'Mixing audio' : options.kind === 'preview' ? 'Encoding preview' : 'Encoding export')
     await runComposition(shouldDuck)
-    return { duckingFallback: false }
   } catch (error) {
     if (!shouldDuck || !(error instanceof ProcessExecutionError) || options.signal.aborted) throw error
     await appendFile(
@@ -347,6 +358,38 @@ export async function executeRender(options: ExecuteRenderOptions): Promise<{ du
       'utf8'
     )
     await runComposition(false)
-    return { duckingFallback: true }
+    duckingFallback = true
   }
+
+  options.onStage('Normalizing final mix')
+  const normalized = await normalizeFinalMixAudio({
+    ffmpegPath: options.ffmpegPath,
+    inputPath: mixPath,
+    outputPath: normalizedMixPath,
+    duration: options.plan.expectedDuration,
+    requestedMode: options.plan.audio.finalMixNormalizationMode,
+    effectivelySilent: !hasMusic && !(
+      options.plan.audio.preserveOriginalAudio && options.plan.segments.some((segment) => segment.hasAudio)
+    ),
+    signal: options.signal,
+    logPath: options.logPath
+  })
+  const muxArgs = [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-i', videoPath,
+    '-i', normalized.audioPath,
+    '-map', '0:v:0',
+    '-map', '1:a:0',
+    '-c:v', 'copy',
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-ar', '48000',
+    '-ac', '2',
+    '-t', options.plan.expectedDuration.toFixed(3),
+    '-movflags', '+faststart',
+    options.outputPath
+  ]
+  await logCommand(options.logPath, 'mux-final-audio', options.ffmpegPath, muxArgs)
+  await runProcess(options.ffmpegPath, muxArgs, { signal: options.signal })
+  return { duckingFallback, finalLoudness: normalized.verification }
 }

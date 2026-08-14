@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { app } from 'electron'
 import type { AnalysisQuality, SelectedCandidateMetadata } from '@shared/types'
 import { SMART_ANALYSIS_VERSION } from './scoring'
+import { applicationStoragePaths } from '../../filesystem/application-storage'
 
 export interface CachedSelection {
   start: number
@@ -19,7 +19,7 @@ async function cacheKey(path: string, duration: number, quality: AnalysisQuality
 }
 
 function cacheDirectory(): string {
-  return join(app.getPath('userData'), 'analysis-cache', SMART_ANALYSIS_VERSION)
+  return join(applicationStoragePaths().analysisCache, SMART_ANALYSIS_VERSION)
 }
 
 export async function readAnalysisCache(

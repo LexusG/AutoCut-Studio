@@ -1,6 +1,9 @@
 import type { CandidateScores, RenderSettings } from '@shared/types'
+import { PERSON_ANALYSIS_POLICY } from '@shared/constants/person-analysis'
 
-export const SMART_ANALYSIS_VERSION = 'phase4-heuristics-v1'
+export const SMART_ANALYSIS_VERSION = 'phase5-mediapipe-pose-v1'
+
+export { PERSON_ANALYSIS_POLICY } from '@shared/constants/person-analysis'
 
 const BASE_WEIGHTS = {
   sharpness: 0.22,
@@ -8,7 +11,7 @@ const BASE_WEIGHTS = {
   motion: 0.15,
   stability: 0.15,
   audioActivity: 0.1,
-  personPresence: 0.05,
+  personPresence: PERSON_ANALYSIS_POLICY.baseWeight,
   sceneQuality: 0.15,
   blackFramePenalty: 0.35,
   duplicatePenalty: 0.12
@@ -37,7 +40,9 @@ export function scoreCandidate(
     sharpness: BASE_WEIGHTS.sharpness * (preferences.preferClearFootage ? 1.45 : 1),
     motion: BASE_WEIGHTS.motion * (preferences.preferMotion ? 1.35 : 0.75),
     audioActivity: BASE_WEIGHTS.audioActivity * (preferences.preferAudibleMoments ? 1.5 : 0.6),
-    personPresence: BASE_WEIGHTS.personPresence * (preferences.preferPeople ? 3 : 0.5)
+    personPresence: preferences.preferPeople
+      ? PERSON_ANALYSIS_POLICY.preferredWeight
+      : PERSON_ANALYSIS_POLICY.baseWeight
   }
   const positive =
     metrics.sharpness * weights.sharpness +
@@ -58,7 +63,7 @@ export function scoreCandidate(
   return { ...metrics, total }
 }
 
-export function analysisReasons(scores: CandidateScores): string[] {
+export function analysisReasons(scores: CandidateScores, personDetected = false): string[] {
   const reasons: string[] = []
   if (scores.blackFramePenalty > 0.3) reasons.push('Dark frames reduced score')
   if (scores.duplicatePenalty > 0.1) reasons.push('Similar footage reduced score')
@@ -67,7 +72,8 @@ export function analysisReasons(scores: CandidateScores): string[] {
   if (scores.motion >= 0.6) reasons.push('Useful motion')
   if (scores.stability >= 0.72) reasons.push('Stable camera movement')
   if (scores.audioActivity >= 0.55) reasons.push('Audible activity')
-  if (scores.personPresence >= 0.6) reasons.push('Person or face signal')
+  if (personDetected && scores.personPresence >= 0.72) reasons.push('Person consistently visible')
+  else if (personDetected && scores.personPresence >= 0.4) reasons.push('Person detected')
   if (scores.sceneQuality >= 0.6) reasons.push('Natural scene timing')
   return reasons.length > 0 ? reasons.slice(0, 4) : ['Best balanced candidate']
 }
