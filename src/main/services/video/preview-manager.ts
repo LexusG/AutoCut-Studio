@@ -47,6 +47,10 @@ export async function cleanFailedPreview(workspace: PreviewWorkspace): Promise<v
   await cleanPreviewIntermediates(workspace)
 }
 
+export async function cleanPromotedPreview(workspace: PreviewWorkspace): Promise<void> {
+  await rm(workspace.root, { recursive: true, force: true })
+}
+
 export async function prunePreviewHistory(projectId: string, keep = 3): Promise<void> {
   const projectRoot = join(tmpdir(), 'autocut-studio', safePart(projectId), 'renders')
   let entries

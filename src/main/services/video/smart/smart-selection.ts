@@ -3,6 +3,7 @@ import { appendFile } from 'node:fs/promises'
 import { readAnalysisCache, writeAnalysisCache, type CachedSelection } from './analysis-cache'
 import { analyzeClipCandidates } from './clip-analyzer'
 import { SMART_ANALYSIS_VERSION } from './scoring'
+import type { PersonPresenceProvider } from './optional-ml'
 
 function selectAlternate(candidates: CachedSelection[], seed: number): CachedSelection {
   const sorted = [...candidates].sort((left, right) => right.metadata.scores.total - left.metadata.scores.total)
@@ -16,12 +17,16 @@ export async function applySmartSelection(
   plan: RenderPlan,
   settings: RenderSettings,
   signal: AbortSignal,
-  onClip: (index: number, filename: string, stage: 'Detecting scenes' | 'Evaluating candidate segments') => void,
-  logPath?: string
+  onClip: (index: number, filename: string, stage: 'Detecting scenes' | 'Detecting people' | 'Evaluating candidate segments') => void,
+  logPath?: string,
+  personProvider?: PersonPresenceProvider
 ): Promise<RenderPlan> {
   if (settings.selectionMode !== 'smart') return plan
   const warnings = [...plan.warnings]
-  const profile = JSON.stringify(settings.smartPreferences)
+  const profile = JSON.stringify({
+    preferences: settings.smartPreferences,
+    personAnalysis: settings.personAnalysis
+  })
   const segments = []
   for (let index = 0; index < plan.segments.length; index += 1) {
     const segment = plan.segments[index]
@@ -36,23 +41,33 @@ export async function applySmartSelection(
     try {
       if (!candidates) {
         onClip(index, segment.filename, 'Evaluating candidate segments')
+        if (settings.personAnalysis.enabled) onClip(index, segment.filename, 'Detecting people')
         candidates = await analyzeClipCandidates(
           ffmpegPath,
           { path: segment.sourcePath, duration: segment.sourceDuration, hasAudio: segment.hasAudio },
           segment.duration,
           settings.analysisQuality,
           settings,
-          signal
+          signal,
+          personProvider
         )
-        await writeAnalysisCache(
-          segment.sourcePath,
-          segment.duration,
-          settings.analysisQuality,
-          profile,
-          candidates
+        const analysisHealthy = candidates.every(
+          (candidate) => (candidate.metadata.personAnalysis?.warnings.length ?? 0) === 0
         )
+        if (analysisHealthy) {
+          await writeAnalysisCache(
+            segment.sourcePath,
+            segment.duration,
+            settings.analysisQuality,
+            profile,
+            candidates
+          )
+        }
       }
       const selected = selectAlternate(candidates, plan.selectionSeed + index)
+      if (selected.metadata.personAnalysis?.warnings.length) {
+        warnings.push(`Person scoring skipped for ${segment.filename}; visual and audio analysis continued.`)
+      }
       segments.push({
         ...segment,
         start: selected.start,

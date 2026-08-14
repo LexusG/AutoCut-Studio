@@ -58,11 +58,11 @@ export function useVideoRender(): {
         const current = useAppStore.getState()
         const removable = [...current.previewHistory]
           .reverse()
-          .filter((version) => !version.approved && version.id !== current.selectedPreviewId)
+          .filter((version) => !version.approved && !version.pinned && version.id !== current.selectedPreviewId)
         while (useAppStore.getState().previewHistory.length > 10 && removable.length > 0) {
           const version = removable.shift()!
           try {
-            await window.autoCut.deletePreviewFiles(version.artifact.outputPath, version.thumbnailPath)
+            await window.autoCut.deletePreview(projectId, version.id)
             useAppStore.getState().removePreviewVersion(version.id)
           } catch {
             break
@@ -99,7 +99,8 @@ export function useVideoRender(): {
         outputPath,
         plan: previewResult.plan,
         previewPath: previewResult.outputPath,
-        previewQuality: previewResult.previewQuality
+        previewQuality: previewResult.previewQuality,
+        previewFinalLoudness: previewResult.finalLoudness
       })
       completeExport(result)
     } catch (error) {

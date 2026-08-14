@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { AudioTrack } from '../src/shared/types'
+import { DEFAULT_RENDER_SETTINGS, type AudioTrack, type RenderArtifact } from '../src/shared/types'
 import { parseProjectFile, serializeProjectFile } from '../src/shared/utils/project-codec'
 import {
   applyPlatformPreset,
@@ -9,6 +9,7 @@ import {
   updateOutputFilename
 } from '../src/shared/utils/project-settings'
 import { validateProjectSettings } from '../src/shared/utils/project-validation'
+import { buildRenderPlan } from '../src/main/services/video/render-planner'
 
 const track: AudioTrack = {
   id: 'track-1',
@@ -115,10 +116,11 @@ describe('project settings persistence', () => {
       previewHistory: undefined
     }
     const migrated = parseProjectFile(JSON.stringify(legacy))
-    expect(migrated.version).toBe(3)
+    expect(migrated.version).toBe(4)
     expect(migrated.settings.editing.selectionMode).toBe('classic')
     expect(migrated.settings.output.fitBackground).toBe('black')
     expect(migrated.settings.audio.normalizationMode).toBe('fast')
+    expect(migrated.settings.audio.finalMixNormalizationMode).toBe('off')
     expect(migrated.settings.audio.soundtrack).toMatchObject({
       enabled: true,
       masterVolume: 34,
@@ -133,5 +135,60 @@ describe('project settings persistence', () => {
     const custom = updateOutputFilename(createDefaultProjectSettings(), 'My:Final*Cut')
     expect(custom.outputFilename).toBe('My_Final_Cut.mp4')
     expect(custom.outputFilenameCustom).toBe(true)
+  })
+
+  it('maps the Phase 4 final-mix boolean to Fast', () => {
+    const settings = createDefaultProjectSettings()
+    const legacy = JSON.parse(JSON.stringify(createProjectFile(settings, ['/clips/a.mp4']))) as Record<string, any>
+    legacy.version = 3
+    delete legacy.settings.audio.finalMixNormalizationMode
+    legacy.settings.audio.normalizeFinalMix = true
+    expect(parseProjectFile(JSON.stringify(legacy)).settings.audio.finalMixNormalizationMode).toBe('fast')
+  })
+
+  it('migrates legacy temporary preview paths to stable storage identity without persisting them again', () => {
+    const settings = createDefaultProjectSettings()
+    const project = createProjectFile(settings, ['/clips/a.mp4'], {
+      id: 'legacy-project',
+      createdAt: '2026-01-01T00:00:00.000Z'
+    })
+    const plan = buildRenderPlan(
+      project.id,
+      0,
+      project.sourcePaths,
+      [{ duration: 8, hasAudio: true, video: { codec: 'h264', width: 640, height: 360, frameRate: 30, rotation: 0, bitrate: null } }],
+      'legacy-fingerprint',
+      DEFAULT_RENDER_SETTINGS
+    )
+    const artifact: RenderArtifact = {
+      kind: 'preview', outputPath: '/tmp/autocut-studio/legacy/preview.mp4', outputUrl: '',
+      duration: 4, width: 640, height: 360, frameRate: 30, fileSize: 1000, hasAudio: true,
+      clipCount: 1, plan, previewQuality: 'fast', reusedPreview: false,
+      logPath: '/tmp/autocut-studio/legacy/render.log',
+      thumbnailPath: '/tmp/autocut-studio/legacy/thumbnail.jpg', thumbnailUrl: '', finalLoudness: null
+    }
+    const raw = {
+      ...project,
+      version: 3,
+      previewHistory: [{
+        id: plan.id, versionNumber: 1, createdAt: project.createdAt, artifact,
+        thumbnailPath: artifact.thumbnailPath, thumbnailUrl: '', approved: false, outdated: false,
+        presetName: 'Custom', pace: 'normal', selectionMode: 'smart', targetDuration: null,
+        settingsSnapshot: settings
+      }]
+    }
+    const migrated = parseProjectFile(JSON.stringify(raw))
+    expect(migrated.previewHistory[0].storage).toMatchObject({
+      key: plan.id,
+      state: 'migrating'
+    })
+    const serialized = JSON.parse(serializeProjectFile(migrated)) as {
+      version: number
+      previewHistory: Array<{ artifact: { outputPath: string; logPath: string }; thumbnailPath: string }>
+    }
+    expect(serialized.version).toBe(4)
+    expect(serialized.previewHistory[0].artifact.outputPath).toBe('')
+    expect(serialized.previewHistory[0].artifact.logPath).toBe('')
+    expect(serialized.previewHistory[0].thumbnailPath).toBe('')
   })
 })

@@ -128,6 +128,7 @@ export function FinalPreviewPage(): React.JSX.Element {
                     <details>
                       <summary>Scores</summary>
                       <code>{JSON.stringify(segment.selectedCandidate.scores, null, 2)}</code>
+                      {segment.selectedCandidate.personAnalysis && <small>Person detected in {segment.selectedCandidate.personAnalysis.framesContainingPerson}/{segment.selectedCandidate.personAnalysis.sampledFrames} sampled frames · confidence {segment.selectedCandidate.personAnalysis.confidence.toFixed(2)}</small>}
                     </details>
                   </div>
                 )}
@@ -153,6 +154,18 @@ export function FinalPreviewPage(): React.JSX.Element {
             <div><dt>File size</dt><dd>{formatFileSize(exported.fileSize)}</dd></div>
             <div><dt>Encoding</dt><dd>{exported.reusedPreview ? 'Preview reused' : 'Full quality render'}</dd></div>
           </dl>
+          {exported.finalLoudness && (
+            <details className="export-technical-details">
+              <summary>Advanced export details</summary>
+              <dl>
+                <div><dt>Final mix normalization</dt><dd>{exported.finalLoudness.appliedMode}</dd></div>
+                <div><dt>Target</dt><dd>{exported.finalLoudness.targetIntegrated} LUFS / {exported.finalLoudness.targetTruePeak} dBTP</dd></div>
+                <div><dt>Measured</dt><dd>{exported.finalLoudness.measuredIntegrated == null ? 'Not available' : `${exported.finalLoudness.measuredIntegrated.toFixed(1)} LUFS`}</dd></div>
+                <div><dt>True peak</dt><dd>{exported.finalLoudness.measuredTruePeak == null ? 'Not available' : `${exported.finalLoudness.measuredTruePeak.toFixed(1)} dBTP`}</dd></div>
+              </dl>
+              {exported.finalLoudness.fallbackReason && <small>Accurate measurement fell back to Fast: {exported.finalLoudness.fallbackReason}</small>}
+            </details>
+          )}
           <div className="export-summary-actions">
             <button className="button button-secondary" type="button" onClick={() => void window.autoCut.openFile(exported.outputPath)}>
               <ExternalLink size={16} /> Open File

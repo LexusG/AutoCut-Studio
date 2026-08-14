@@ -16,15 +16,18 @@ import { allowMediaPath, createMediaUrl } from '../filesystem/media-access'
 import { verifyRenderedOutput } from './ffprobe-verifier'
 import {
   cleanFailedPreview,
+  cleanPromotedPreview,
   cleanPreviewIntermediates,
   createPreviewWorkspace,
   type PreviewWorkspace
 } from './preview-manager'
+import { promotePreview } from './preview-storage'
 import { buildRenderPlan } from './render-planner'
 import { executeRender, renderDimensions } from './render-executor'
 import { InfeasibleDurationError } from './segment-allocator'
 import { probeMedia } from './metadata'
 import { applySmartSelection } from './smart/smart-selection'
+import type { PersonPresenceProvider } from './smart/optional-ml'
 
 const activeRenders = new Map<string, AbortController>()
 
@@ -83,7 +86,8 @@ export function cancelRender(renderId: string): boolean {
 
 export async function generatePreview(
   request: PreviewRenderRequest,
-  onProgress: (progress: RenderProgress) => void
+  onProgress: (progress: RenderProgress) => void,
+  personProvider?: PersonPresenceProvider
 ): Promise<PreviewRenderOutcome> {
   const { controller, startedAt } = beginRender(request.renderId)
   const { signal } = controller
@@ -140,13 +144,14 @@ export async function generatePreview(
         (index, filename, stage) => {
           report(stage, 12 + ((index + 0.5) / plan.segments.length) * 8, index + 1, filename)
         },
-        workspace.logPath
+        workspace.logPath,
+        personProvider
       )
       await writeFile(workspace.planPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
     }
     const dimensions = renderDimensions(plan, request.settings.previewQuality)
     let currentStage: RenderStage = 'Preparing clips'
-    await executeRender({
+    const execution = await executeRender({
       ffmpegPath: status.ffmpeg.path,
       plan,
       outputPath: workspace.previewPath,
@@ -199,21 +204,26 @@ export async function generatePreview(
     allowMediaPath(workspace.previewPath)
     await cleanPreviewIntermediates(workspace)
     report('Complete', 100)
+    const temporaryArtifact: RenderArtifact = {
+      kind: 'preview',
+      outputPath: workspace.previewPath,
+      outputUrl: '',
+      ...verified,
+      clipCount: plan.segments.length,
+      plan,
+      previewQuality: request.settings.previewQuality,
+      reusedPreview: false,
+      logPath: workspace.logPath,
+      thumbnailPath: thumbnailReady ? workspace.thumbnailPath : '',
+      thumbnailUrl: '',
+      finalLoudness: execution.finalLoudness
+    }
+    const persistentArtifact = await promotePreview(request.projectId, plan.id, temporaryArtifact)
+    await cleanPromotedPreview(workspace)
+    workspace = null
     return {
       success: true,
-      result: {
-        kind: 'preview',
-        outputPath: workspace.previewPath,
-        outputUrl: createMediaUrl(workspace.previewPath),
-        ...verified,
-        clipCount: plan.segments.length,
-        plan,
-        previewQuality: request.settings.previewQuality,
-        reusedPreview: false,
-        logPath: workspace.logPath,
-        thumbnailPath: thumbnailReady ? workspace.thumbnailPath : '',
-        thumbnailUrl: thumbnailReady ? createMediaUrl(workspace.thumbnailPath) : ''
-      }
+      result: persistentArtifact
     }
   } catch (error) {
     if (workspace) await cleanFailedPreview(workspace)
@@ -245,6 +255,7 @@ export async function exportApprovedPreview(
       throw new Error('FFmpeg and FFprobe are required to export the approved video.')
     }
     let reusedPreview = false
+    let finalLoudness = request.previewFinalLoudness ?? null
     if (request.previewQuality === 'full') {
       report('Finalizing', 35)
       assertNotCancelled(signal)
@@ -257,7 +268,7 @@ export async function exportApprovedPreview(
       )
     } else {
       let currentStage: RenderStage = 'Preparing clips'
-      await executeRender({
+      const execution = await executeRender({
         ffmpegPath: status.ffmpeg.path,
         plan,
         outputPath: renderedPath,
@@ -283,6 +294,7 @@ export async function exportApprovedPreview(
           }
         }
       })
+      finalLoudness = execution.finalLoudness
     }
 
     assertNotCancelled(signal)
@@ -310,6 +322,7 @@ export async function exportApprovedPreview(
       logPath,
       thumbnailPath: request.plan.previewVersion ? request.previewPath.replace(/preview\.mp4$/, 'thumbnail.jpg') : '',
       thumbnailUrl: ''
+      , finalLoudness
     }
   } catch (error) {
     await rm(partialPath, { force: true })

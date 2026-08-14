@@ -30,7 +30,8 @@ function artifact(generation: number): RenderArtifact {
     reusedPreview: false,
     logPath: `/tmp/autocut-studio/history/v${generation + 1}/render.log`,
     thumbnailPath: `/tmp/autocut-studio/history/v${generation + 1}/thumbnail.jpg`,
-    thumbnailUrl: `autocut-media://history-v${generation + 1}-thumb`
+    thumbnailUrl: `autocut-media://history-v${generation + 1}-thumb`,
+    finalLoudness: null
   }
 }
 
@@ -67,5 +68,15 @@ describe('Preview History state', () => {
     useAppStore.getState().removePreviewVersion(oldId)
     expect(useAppStore.getState().previewHistory).toHaveLength(1)
     expect(useAppStore.getState().previewHistory[0].approved).toBe(true)
+  })
+
+  it('pins a preview independently of approval and persists the managed storage reference', () => {
+    useAppStore.getState().completePreview(artifact(0))
+    const version = useAppStore.getState().previewHistory[0]
+    expect(version.storage).toMatchObject({ key: version.id, state: 'available' })
+    useAppStore.getState().togglePreviewPinned(version.id)
+    expect(useAppStore.getState().previewHistory[0].pinned).toBe(true)
+    useAppStore.getState().togglePreviewPinned(version.id)
+    expect(useAppStore.getState().previewHistory[0].pinned).toBe(false)
   })
 })

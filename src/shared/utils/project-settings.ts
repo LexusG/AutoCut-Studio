@@ -97,11 +97,18 @@ export function createDefaultProjectSettings(): ProjectSettings {
         crossfadeDuration: 1.5
       },
       normalizationMode: 'fast',
-      normalizeFinalMix: false
+      finalMixNormalizationMode: 'off'
     },
     outputFilename: createOutputFilename('Untitled project', 'custom'),
     outputFilenameCustom: false,
-    previewQuality: 'fast'
+    previewQuality: 'fast',
+    personAnalysis: {
+      enabled: true,
+      provider: 'mediapipe-pose-lite',
+      modelVersion: 'pose-landmarker-lite-2023-04-17',
+      modelHash: '59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a',
+      analyzerVersion: 'phase5-person-v1'
+    }
   }
 }
 
@@ -239,8 +246,9 @@ export function toRenderSettings(settings: ProjectSettings): RenderSettings {
         ? settings.audio.soundtrack.crossfadeDuration
         : 0,
       normalizationMode: settings.audio.normalizationMode,
-      normalizeFinalMix: settings.audio.normalizeFinalMix
+      finalMixNormalizationMode: settings.audio.finalMixNormalizationMode
     },
+    personAnalysis: structuredClone(settings.personAnalysis),
     selectionMode: settings.editing.selectionMode,
     analysisQuality: settings.editing.analysisQuality,
     smartPreferences: structuredClone(settings.editing.smartPreferences),
@@ -275,7 +283,7 @@ export function createProjectFile(
 ): ProjectFile {
   const now = new Date().toISOString()
   return {
-    version: 3,
+    version: 4,
     id: existing?.id ?? crypto.randomUUID(),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,

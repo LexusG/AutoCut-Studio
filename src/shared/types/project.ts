@@ -11,7 +11,9 @@ import type {
   AnalysisQuality,
   FitBackgroundMode,
   BlurStrength,
-  AudioNormalizationMode
+  AudioNormalizationMode,
+  FinalMixNormalizationMode,
+  PersonAnalysisConfiguration
 } from './render'
 
 export type PlatformId = 'instagram' | 'youtube' | 'linkedin' | 'custom'
@@ -123,7 +125,15 @@ export interface ProjectAudioSettings {
   duckMusicDuringClipAudio: boolean
   soundtrack: SoundtrackSettings
   normalizationMode: AudioNormalizationMode
-  normalizeFinalMix: boolean
+  finalMixNormalizationMode: FinalMixNormalizationMode
+}
+
+export type PreviewStorageState = 'available' | 'missing' | 'migrating'
+
+export interface PreviewStorageReference {
+  key: string
+  relativePath: string
+  state: PreviewStorageState
 }
 
 export interface ProjectSettings {
@@ -137,10 +147,11 @@ export interface ProjectSettings {
   outputFilename: string
   outputFilenameCustom: boolean
   previewQuality: PreviewQuality
+  personAnalysis: PersonAnalysisConfiguration
 }
 
 export interface ProjectFile {
-  version: 3
+  version: 4
   id: string
   createdAt: string
   updatedAt: string
@@ -158,11 +169,20 @@ export interface PreviewVersion {
   thumbnailUrl: string
   approved: boolean
   outdated: boolean
+  pinned: boolean
+  storage: PreviewStorageReference
   presetName: string
   pace: EditingPace
   selectionMode: SelectionMode
   targetDuration: number | null
   settingsSnapshot: ProjectSettings
+}
+
+export interface PreviewStorageStats {
+  bytes: number
+  previewCount: number
+  location: string
+  retentionLimit: number
 }
 
 export interface LoadedProject {
