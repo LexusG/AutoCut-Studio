@@ -15,7 +15,9 @@ const api: AutoCutApi = {
   removeRecentProject: (path) => ipcRenderer.invoke(IPC_CHANNELS.removeRecentProject, path),
   chooseOutputPath: (suggestedName) =>
     ipcRenderer.invoke(IPC_CHANNELS.chooseOutput, suggestedName),
-  renderVideo: (request) => ipcRenderer.invoke(IPC_CHANNELS.renderVideo, request),
+  generatePreview: (request) => ipcRenderer.invoke(IPC_CHANNELS.generatePreview, request),
+  exportApprovedPreview: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.exportApprovedPreview, request),
   cancelRender: (renderId) => ipcRenderer.invoke(IPC_CHANNELS.cancelRender, renderId),
   onRenderProgress: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: Parameters<typeof callback>[0]): void => {
@@ -24,6 +26,8 @@ const api: AutoCutApi = {
     ipcRenderer.on(IPC_CHANNELS.renderProgress, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.renderProgress, listener)
   },
+  openFile: (path) => ipcRenderer.invoke(IPC_CHANNELS.openFile, path),
+  showItemInFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.showItemInFolder, path),
   getPathForFile: (file) => webUtils.getPathForFile(file)
 }
 

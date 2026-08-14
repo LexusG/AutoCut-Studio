@@ -17,7 +17,7 @@ export function EditorPage(): React.JSX.Element {
   const clipCount = useAppStore((state) => state.clips.length)
   const ffmpegStatus = useAppStore((state) => state.ffmpegStatus)
   const isRendering = useAppStore((state) => state.renderStatus === 'rendering')
-  const { generate, cancel } = useVideoRender()
+  const { generatePreview, cancel } = useVideoRender()
   const { save, busy: projectBusy, message: projectMessage, error: projectError } = useProjectFiles()
 
   return (
@@ -29,6 +29,7 @@ export function EditorPage(): React.JSX.Element {
           </button>
           <BrandMark compact />
           <span className="header-divider" />
+          <span className="workflow-step">2 Configure</span>
           <label className="project-name-field">
             <input aria-label="Project name" value={projectName} onChange={(event) => setProjectName(event.target.value)} />
             {projectDirty && <span title="Unsaved changes" />}
@@ -48,9 +49,9 @@ export function EditorPage(): React.JSX.Element {
             className="button button-primary"
             type="button"
             disabled={clipCount === 0 || isRendering || !ffmpegStatus?.ready}
-            onClick={() => void generate()}
+            onClick={() => void generatePreview()}
           >
-            <Play size={16} fill="currentColor" /> Generate Video
+            <Play size={16} fill="currentColor" /> Generate Preview
           </button>
         </div>
       </header>

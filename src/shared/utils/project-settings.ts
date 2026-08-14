@@ -63,7 +63,8 @@ export function createDefaultProjectSettings(): ProjectSettings {
       pace: 'normal',
       useEveryClip: true,
       targetDuration: { mode: 'auto', seconds: null },
-      transitionPreference: 'crossfade'
+      transitionPreference: 'crossfade',
+      transitionDuration: 0.5
     },
     audio: {
       backgroundTrack: null,
@@ -78,7 +79,8 @@ export function createDefaultProjectSettings(): ProjectSettings {
       duckMusicDuringClipAudio: true
     },
     outputFilename: createOutputFilename('Untitled project', 'custom'),
-    outputFilenameCustom: false
+    outputFilenameCustom: false,
+    previewQuality: 'fast'
   }
 }
 
@@ -179,7 +181,22 @@ export function toRenderSettings(settings: ProjectSettings): RenderSettings {
     pace: settings.editing.pace,
     fitMode: settings.output.fitMode,
     quality: settings.output.quality,
-    useEveryClip: settings.editing.useEveryClip
+    previewQuality: settings.previewQuality,
+    useEveryClip: settings.editing.useEveryClip,
+    targetDuration: targetDurationInSeconds(settings),
+    transitionPreference: settings.editing.transitionPreference,
+    transitionDuration: settings.editing.transitionDuration,
+    audio: {
+      ...structuredClone(settings.audio),
+      backgroundTrack: settings.audio.backgroundTrack
+        ? {
+            path: settings.audio.backgroundTrack.path,
+            filename: settings.audio.backgroundTrack.filename,
+            duration: settings.audio.backgroundTrack.duration,
+            missing: settings.audio.backgroundTrack.missing
+          }
+        : null
+    }
   }
 }
 

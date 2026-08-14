@@ -1,29 +1,29 @@
-import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, copyFile, mkdtemp, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { extname, isAbsolute, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type {
+  ExportRenderRequest,
+  PreviewRenderOutcome,
+  PreviewRenderRequest,
+  RenderArtifact,
   RenderProgress,
-  RenderQuality,
-  RenderRequest,
-  RenderResult,
-  RenderSettings
+  RenderStage
 } from '@shared/types'
 import { detectFfmpeg } from '../ffmpeg/binaries'
-import { ProcessExecutionError, runProcess } from '../ffmpeg/process'
+import { ProcessExecutionError } from '../ffmpeg/process'
 import { allowMediaPath, createMediaUrl } from '../filesystem/media-access'
+import { verifyRenderedOutput } from './ffprobe-verifier'
+import {
+  cleanFailedPreview,
+  cleanPreviewIntermediates,
+  createPreviewWorkspace,
+  prunePreviewHistory,
+  type PreviewWorkspace
+} from './preview-manager'
+import { buildRenderPlan } from './render-planner'
+import { executeRender, renderDimensions } from './render-executor'
+import { InfeasibleDurationError } from './segment-allocator'
 import { probeMedia } from './metadata'
-import { createRenderPlan, getOutputSpec, type PlannedSegment } from './render-planner'
-
-interface QualityOptions {
-  preset: string
-  crf: number
-}
-
-const qualityOptions: Record<RenderQuality, QualityOptions> = {
-  draft: { preset: 'ultrafast', crf: 28 },
-  balanced: { preset: 'veryfast', crf: 23 },
-  high: { preset: 'medium', crf: 19 }
-}
 
 const activeRenders = new Map<string, AbortController>()
 
@@ -38,123 +38,39 @@ function assertNotCancelled(signal: AbortSignal): void {
   if (signal.aborted) throw new RenderCancelledError()
 }
 
-function videoFilter(settings: RenderSettings, width: number, height: number, fps: number): string {
-  const scaleAndFrame =
-    settings.fitMode === 'crop'
-      ? `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}`
-      : `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`
-  return `${scaleAndFrame},fps=${fps},setsar=1,format=yuv420p`
-}
-
-function createProgressParser(duration: number, onFraction: (fraction: number) => void) {
-  let buffer = ''
-  return (text: string): void => {
-    buffer += text
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    for (const line of lines) {
-      const separator = line.indexOf('=')
-      if (separator < 0) continue
-      const key = line.slice(0, separator)
-      if (key !== 'out_time_us' && key !== 'out_time_ms') continue
-      const microseconds = Number(line.slice(separator + 1))
-      if (!Number.isFinite(microseconds)) continue
-      onFraction(Math.min(1, Math.max(0, microseconds / 1_000_000 / duration)))
-    }
-  }
-}
-
-async function normalizeSegment(
-  ffmpegPath: string,
-  segment: PlannedSegment,
-  outputPath: string,
-  settings: RenderSettings,
-  width: number,
-  height: number,
-  fps: number,
-  signal: AbortSignal,
-  onFraction: (fraction: number) => void
-): Promise<void> {
-  const duration = segment.segmentDuration.toFixed(3)
-  const args = [
-    '-hide_banner',
-    '-loglevel',
-    'error',
-    '-ss',
-    segment.start.toFixed(3),
-    '-t',
-    duration,
-    '-i',
-    segment.path
-  ]
-
-  if (!segment.hasAudio) {
-    args.push(
-      '-f',
-      'lavfi',
-      '-t',
-      duration,
-      '-i',
-      'anullsrc=channel_layout=stereo:sample_rate=48000'
-    )
-  }
-
-  const audioInput = segment.hasAudio ? '0:a:0' : '1:a:0'
-  const filters = [
-    `[0:v:0]${videoFilter(settings, width, height, fps)}[video]`,
-    `[${audioInput}]aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=0:${duration},asetpts=PTS-STARTPTS[audio]`
-  ].join(';')
-  const quality = qualityOptions[settings.quality]
-
-  args.push(
-    '-filter_complex',
-    filters,
-    '-map',
-    '[video]',
-    '-map',
-    '[audio]',
-    '-c:v',
-    'libx264',
-    '-preset',
-    quality.preset,
-    '-crf',
-    quality.crf.toString(),
-    '-c:a',
-    'aac',
-    '-b:a',
-    '160k',
-    '-ar',
-    '48000',
-    '-ac',
-    '2',
-    '-t',
-    duration,
-    '-movflags',
-    '+faststart',
-    '-progress',
-    'pipe:1',
-    '-nostats',
-    '-y',
-    outputPath
-  )
-
-  await runProcess(ffmpegPath, args, {
-    signal,
-    onStdout: createProgressParser(segment.segmentDuration, onFraction)
-  })
-}
-
-function escapeConcatPath(path: string): string {
-  return path.replaceAll("'", "'\\''")
-}
-
 function friendlyRenderError(error: unknown, signal: AbortSignal): Error {
   if (signal.aborted || error instanceof RenderCancelledError) return new RenderCancelledError()
   if (error instanceof ProcessExecutionError) {
-    return new Error(`FFmpeg could not render the video. ${error.details || error.message}`)
+    return new Error(`FFmpeg could not complete the render. ${error.details || error.message}`)
   }
   if (error instanceof Error) return error
   return new Error('The video could not be rendered.')
+}
+
+function beginRender(renderId: string): { controller: AbortController; startedAt: number } {
+  if (activeRenders.has(renderId)) throw new Error('This render is already running.')
+  const controller = new AbortController()
+  activeRenders.set(renderId, controller)
+  return { controller, startedAt: Date.now() }
+}
+
+function progressReporter(
+  renderId: string,
+  startedAt: number,
+  totalClips: number,
+  onProgress: (progress: RenderProgress) => void
+): (stage: RenderStage, percent: number, currentClipIndex?: number | null, currentClip?: string | null) => void {
+  return (stage, percent, currentClipIndex = null, currentClip = null) => {
+    onProgress({
+      renderId,
+      stage,
+      currentClip,
+      currentClipIndex,
+      totalClips,
+      percent: Math.min(100, Math.max(0, Math.round(percent * 10) / 10)),
+      elapsedSeconds: (Date.now() - startedAt) / 1000
+    })
+  }
 }
 
 export function cancelRender(renderId: string): boolean {
@@ -164,131 +80,204 @@ export function cancelRender(renderId: string): boolean {
   return true
 }
 
-export async function renderVideo(
-  request: RenderRequest,
+export async function generatePreview(
+  request: PreviewRenderRequest,
   onProgress: (progress: RenderProgress) => void
-): Promise<RenderResult> {
-  if (activeRenders.has(request.renderId)) throw new Error('This render is already running.')
-  const controller = new AbortController()
+): Promise<PreviewRenderOutcome> {
+  const { controller, startedAt } = beginRender(request.renderId)
   const { signal } = controller
-  activeRenders.set(request.renderId, controller)
-  const startedAt = Date.now()
-  let workDirectory: string | null = null
-
-  const progress = (
-    stage: RenderProgress['stage'],
-    percent: number,
-    totalClips: number,
-    currentClip: string | null = null,
-    currentClipIndex: number | null = null
-  ): void => {
-    onProgress({
-      renderId: request.renderId,
-      stage,
-      currentClip,
-      currentClipIndex,
-      totalClips,
-      percent: Math.min(100, Math.max(0, Math.round(percent * 10) / 10)),
-      elapsedSeconds: (Date.now() - startedAt) / 1000
-    })
-  }
-
+  const report = progressReporter(request.renderId, startedAt, request.sourcePaths.length, onProgress)
+  let workspace: PreviewWorkspace | null = null
   try {
     const status = await detectFfmpeg()
     if (!status.ffmpeg.path || !status.ffprobe.path || !status.ready) {
-      throw new Error('FFmpeg and FFprobe are required to generate a video.')
+      throw new Error('FFmpeg and FFprobe are required to generate a preview.')
     }
-
-    progress('Analyzing clips', 0, request.sourcePaths.length)
+    report('Analyzing clips', 0)
     const metadata = []
     for (let index = 0; index < request.sourcePaths.length; index += 1) {
       assertNotCancelled(signal)
       metadata.push(await probeMedia(status.ffprobe.path, request.sourcePaths[index]))
-      progress('Analyzing clips', ((index + 1) / request.sourcePaths.length) * 8, request.sourcePaths.length)
+      report('Analyzing clips', ((index + 1) / request.sourcePaths.length) * 10, index + 1, basename(request.sourcePaths[index]))
     }
 
-    const plan = createRenderPlan(request.sourcePaths, metadata, request.settings)
-    const outputSpec = getOutputSpec(request.settings, plan)
-    workDirectory = await mkdtemp(join(tmpdir(), 'autocut-render-'))
-    const processedPaths: string[] = []
-
-    for (let index = 0; index < plan.length; index += 1) {
-      assertNotCancelled(signal)
-      const segment = plan[index]
-      const processedPath = join(workDirectory, `clip-${index.toString().padStart(4, '0')}.mp4`)
-      processedPaths.push(processedPath)
-      await normalizeSegment(
-        status.ffmpeg.path,
-        segment,
-        processedPath,
-        request.settings,
-        outputSpec.width,
-        outputSpec.height,
-        outputSpec.frameRate,
-        signal,
-        (fraction) => {
-          const clipProgress = (index + fraction) / plan.length
-          progress(
-            'Preparing clips',
-            8 + clipProgress * 82,
-            plan.length,
-            segment.filename,
-            index + 1
-          )
-        }
+    report('Planning edit', 12)
+    let plan
+    try {
+      plan = buildRenderPlan(
+        request.projectId,
+        request.generation,
+        request.sourcePaths,
+        metadata,
+        request.settingsFingerprint,
+        request.settings
       )
+    } catch (error) {
+      if (error instanceof InfeasibleDurationError) {
+        return {
+          success: false,
+          issue: {
+            code: 'target-too-short',
+            message: error.message,
+            requestedDuration: error.requestedDuration,
+            minimumDuration: Math.ceil(error.minimumDuration),
+            clipCount: error.clipCount
+          }
+        }
+      }
+      throw error
     }
 
-    assertNotCancelled(signal)
-    progress('Combining video', 92, plan.length)
-    const concatPath = join(workDirectory, 'clips.ffconcat')
-    const finalTempPath = join(workDirectory, 'final.mp4')
-    await writeFile(
-      concatPath,
-      `ffconcat version 1.0\n${processedPaths.map((path) => `file '${escapeConcatPath(path)}'`).join('\n')}\n`,
-      'utf8'
-    )
-    await runProcess(
-      status.ffmpeg.path,
-      [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-f',
-        'concat',
-        '-safe',
-        '0',
-        '-i',
-        concatPath,
-        '-c',
-        'copy',
-        '-movflags',
-        '+faststart',
-        '-fflags',
-        '+genpts',
-        '-avoid_negative_ts',
-        'make_zero',
-        '-y',
-        finalTempPath
-      ],
-      { signal }
-    )
+    workspace = await createPreviewWorkspace(request.projectId, request.renderId, plan)
+    const dimensions = renderDimensions(plan, request.settings.previewQuality)
+    let currentStage: RenderStage = 'Preparing clips'
+    await executeRender({
+      ffmpegPath: status.ffmpeg.path,
+      plan,
+      outputPath: workspace.previewPath,
+      normalizedDirectory: workspace.normalized,
+      previewQuality: request.settings.previewQuality,
+      kind: 'preview',
+      signal,
+      logPath: workspace.logPath,
+      onStage: (stage) => {
+        currentStage = stage
+        report(stage, stage === 'Creating transitions' || stage === 'Mixing audio' ? 72 : 15)
+      },
+      onClipProgress: (index, fraction) => {
+        if (index < plan.segments.length) {
+          const clip = plan.segments[index]
+          report(currentStage, 15 + ((index + fraction) / plan.segments.length) * 55, index + 1, clip.filename)
+        } else {
+          report(currentStage, 72 + fraction * 22)
+        }
+      }
+    })
 
     assertNotCancelled(signal)
-    progress('Finalizing', 98, plan.length)
-    await copyFile(finalTempPath, request.outputPath)
-    allowMediaPath(request.outputPath)
-    const duration = plan.reduce((total, segment) => total + segment.segmentDuration, 0)
-    progress('Complete', 100, plan.length)
+    report('Verifying output', 96)
+    const verified = await verifyRenderedOutput(status.ffprobe.path, workspace.previewPath, {
+      ...dimensions,
+      frameRate: plan.output.frameRate,
+      duration: plan.expectedDuration
+    })
+    allowMediaPath(workspace.previewPath)
+    await cleanPreviewIntermediates(workspace)
+    await prunePreviewHistory(request.projectId)
+    report('Complete', 100)
     return {
-      outputPath: request.outputPath,
-      outputUrl: createMediaUrl(request.outputPath),
-      duration
+      success: true,
+      result: {
+        kind: 'preview',
+        outputPath: workspace.previewPath,
+        outputUrl: createMediaUrl(workspace.previewPath),
+        ...verified,
+        clipCount: plan.segments.length,
+        plan,
+        previewQuality: request.settings.previewQuality,
+        reusedPreview: false,
+        logPath: workspace.logPath
+      }
     }
   } catch (error) {
+    if (workspace) await cleanFailedPreview(workspace)
     throw friendlyRenderError(error, signal)
   } finally {
     activeRenders.delete(request.renderId)
-    if (workDirectory) await rm(workDirectory, { recursive: true, force: true })
+  }
+}
+
+export async function exportApprovedPreview(
+  request: ExportRenderRequest,
+  onProgress: (progress: RenderProgress) => void
+): Promise<RenderArtifact> {
+  const { controller, startedAt } = beginRender(request.renderId)
+  const { signal } = controller
+  const plan = request.plan
+  const report = progressReporter(request.renderId, startedAt, plan.segments.length, onProgress)
+  const workDirectory = await mkdtemp(join(tmpdir(), 'autocut-export-'))
+  const renderedPath = join(workDirectory, 'approved.mp4')
+  const normalizedDirectory = join(workDirectory, 'normalized')
+  const logPath = join(dirname(request.previewPath), 'export.log')
+  const partialPath = join(
+    dirname(request.outputPath),
+    `.${basename(request.outputPath)}.${request.renderId}.partial.mp4`
+  )
+  try {
+    const status = await detectFfmpeg()
+    if (!status.ffmpeg.path || !status.ffprobe.path || !status.ready) {
+      throw new Error('FFmpeg and FFprobe are required to export the approved video.')
+    }
+    let reusedPreview = false
+    if (request.previewQuality === 'full') {
+      report('Finalizing', 35)
+      assertNotCancelled(signal)
+      await copyFile(request.previewPath, renderedPath)
+      reusedPreview = true
+      await appendFile(
+        logPath,
+        `${JSON.stringify({ timestamp: new Date().toISOString(), stage: 'reuse-full-preview', previewPath: request.previewPath })}\n`,
+        'utf8'
+      )
+    } else {
+      let currentStage: RenderStage = 'Preparing clips'
+      await executeRender({
+        ffmpegPath: status.ffmpeg.path,
+        plan,
+        outputPath: renderedPath,
+        normalizedDirectory,
+        previewQuality: 'full',
+        kind: 'export',
+        signal,
+        logPath,
+        onStage: (stage) => {
+          currentStage = stage
+          report(stage, stage === 'Creating transitions' || stage === 'Mixing audio' ? 72 : 5)
+        },
+        onClipProgress: (index, fraction) => {
+          if (index < plan.segments.length) {
+            report(
+              currentStage,
+              5 + ((index + fraction) / plan.segments.length) * 62,
+              index + 1,
+              plan.segments[index].filename
+            )
+          } else {
+            report(currentStage, 72 + fraction * 20)
+          }
+        }
+      })
+    }
+
+    assertNotCancelled(signal)
+    report('Verifying output', 94)
+    const verified = await verifyRenderedOutput(status.ffprobe.path, renderedPath, {
+      width: plan.output.width,
+      height: plan.output.height,
+      frameRate: plan.output.frameRate,
+      duration: plan.expectedDuration
+    })
+    await copyFile(renderedPath, partialPath)
+    assertNotCancelled(signal)
+    await rename(partialPath, request.outputPath)
+    allowMediaPath(request.outputPath)
+    report('Complete', 100)
+    return {
+      kind: 'export',
+      outputPath: request.outputPath,
+      outputUrl: createMediaUrl(request.outputPath),
+      ...verified,
+      clipCount: plan.segments.length,
+      plan,
+      previewQuality: request.previewQuality,
+      reusedPreview,
+      logPath
+    }
+  } catch (error) {
+    await rm(partialPath, { force: true })
+    throw friendlyRenderError(error, signal)
+  } finally {
+    activeRenders.delete(request.renderId)
+    await rm(workDirectory, { recursive: true, force: true })
   }
 }

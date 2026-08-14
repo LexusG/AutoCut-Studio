@@ -34,7 +34,8 @@ describe('project settings persistence', () => {
         ...defaults.editing,
         pace: 'fast' as const,
         useEveryClip: false,
-        targetDuration: { mode: 'custom' as const, seconds: 47 }
+        targetDuration: { mode: 'custom' as const, seconds: 47 },
+        transitionDuration: 1
       },
       audio: {
         ...defaults.audio,
@@ -48,7 +49,8 @@ describe('project settings persistence', () => {
         fadeIn: { enabled: false, duration: 0.5 },
         fadeOut: { enabled: true, duration: 4 },
         duckMusicDuringClipAudio: false
-      }
+      },
+      previewQuality: 'full' as const
     }
     const project = createProjectFile(settings, ['/clips/a.mp4', '/clips/b.mp4'], {
       id: 'project-1',
@@ -56,6 +58,7 @@ describe('project settings persistence', () => {
     })
     const restored = parseProjectFile(serializeProjectFile(project))
     expect(restored.settings.editing).toEqual(settings.editing)
+    expect(restored.settings.previewQuality).toBe('full')
     expect(restored.settings.output.quality).toBe('high')
     expect(restored.settings.output.fitMode).toBe('fit')
     expect(restored.settings.audio).toMatchObject({

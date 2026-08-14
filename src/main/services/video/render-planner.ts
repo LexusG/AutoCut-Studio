@@ -1,14 +1,15 @@
-import { randomInt } from 'node:crypto'
+import { randomInt, randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import type {
   AspectRatio,
   EditingMode,
   EditingPace,
   OutputFrameRate,
-  OutputResolution,
+  RenderPlan,
   RenderSettings
 } from '@shared/types'
 import type { ProbedMedia } from './metadata'
+import { allocateSegmentDurations, getPaceRange } from './segment-allocator'
 
 export interface RenderSource extends ProbedMedia {
   path: string
@@ -26,10 +27,9 @@ export interface OutputSpec {
   frameRate: number
 }
 
-const preferredDurations: Record<EditingPace, number> = {
-  slow: 7.5,
-  normal: 4.5,
-  fast: 2.5
+interface UsableSource extends RenderSource {
+  usableStart: number
+  usableDuration: number
 }
 
 function effectiveDimensions(source: RenderSource): { width: number; height: number } {
@@ -48,12 +48,22 @@ function shuffle<T>(items: T[]): T[] {
   return shuffled
 }
 
+function deterministicShuffle<T>(items: T[], generation: number): T[] {
+  return [...items]
+    .map((item, index) => ({ item, key: ((index + 1) * 2654435761 + generation * 1013904223) >>> 0 }))
+    .sort((left, right) => left.key - right.key)
+    .map(({ item }) => item)
+}
+
 export function arrangeSources(
   sources: RenderSource[],
   mode: EditingMode,
-  aspectRatio: AspectRatio
+  aspectRatio: AspectRatio,
+  generation?: number
 ): RenderSource[] {
-  if (mode === 'random') return shuffle(sources)
+  if (mode === 'random') {
+    return generation == null ? shuffle(sources) : deterministicShuffle(sources, generation)
+  }
   if (mode === 'original-order') return [...sources]
 
   const targetIsPortrait = aspectRatio === '9:16' || aspectRatio === '4:5'
@@ -68,16 +78,20 @@ export function arrangeSources(
   })
 }
 
-export function selectSegment(source: RenderSource, pace: EditingPace): PlannedSegment {
-  const preferred = preferredDurations[pace]
-  if (source.duration <= preferred + 0.25) {
-    return { ...source, start: 0, segmentDuration: source.duration }
-  }
-
+function usableSource(source: RenderSource): UsableSource {
+  if (source.duration <= 2) return { ...source, usableStart: 0, usableDuration: source.duration }
   const edgeMargin = Math.min(source.duration * 0.08, 2)
-  const usableDuration = Math.max(0.25, source.duration - edgeMargin * 2)
-  const segmentDuration = Math.min(preferred, usableDuration)
-  const start = edgeMargin + Math.max(0, (usableDuration - segmentDuration) / 2)
+  return {
+    ...source,
+    usableStart: edgeMargin,
+    usableDuration: Math.max(0.05, source.duration - edgeMargin * 2)
+  }
+}
+
+export function selectSegment(source: RenderSource, pace: EditingPace): PlannedSegment {
+  const usable = usableSource(source)
+  const segmentDuration = Math.min(getPaceRange(pace).preferred, usable.usableDuration)
+  const start = usable.usableStart + Math.max(0, (usable.usableDuration - segmentDuration) / 2)
   return { ...source, start, segmentDuration }
 }
 
@@ -102,10 +116,7 @@ function resolveFrameRate(value: OutputFrameRate, sources: RenderSource[]): numb
   )
 }
 
-export function getOutputSpec(
-  settings: RenderSettings,
-  sources: RenderSource[]
-): OutputSpec {
+export function getOutputSpec(settings: RenderSettings, sources: RenderSource[]): OutputSpec {
   const firstSource = sources[0]
   if (!firstSource) throw new Error('Add at least one video before rendering.')
   if (settings.outputWidth > 0 && settings.outputHeight > 0) {
@@ -122,16 +133,93 @@ export function getOutputSpec(
   return { width, height, frameRate: resolveFrameRate(settings.frameRate, sources) }
 }
 
+function variationPosition(generation: number, index: number): number {
+  if (generation <= 0) return 0.5
+  return 0.1 + ((((generation + 1) * 37 + (index + 1) * 53) % 81) / 100)
+}
+
+export function buildRenderPlan(
+  projectId: string,
+  generation: number,
+  paths: string[],
+  metadata: ProbedMedia[],
+  settingsFingerprint: string,
+  settings: RenderSettings
+): RenderPlan {
+  if (paths.length !== metadata.length) throw new Error('Source metadata is incomplete.')
+  const sources = paths.map((path, index) => ({ path, filename: basename(path), ...metadata[index] }))
+  const arranged = arrangeSources(sources, settings.editingMode, settings.aspectRatio, generation)
+    .map(usableSource)
+  const allocation = allocateSegmentDurations(
+    arranged,
+    settings.pace,
+    settings.targetDuration,
+    settings.useEveryClip,
+    settings.transitionPreference,
+    settings.transitionDuration
+  )
+  const included = allocation.includedIndices.map((index) => arranged[index])
+  const output = getOutputSpec(settings, included)
+
+  const segments = included.map((source, index) => {
+    const duration = allocation.durations[index]
+    const freeSpace = Math.max(0, source.usableDuration - duration)
+    const start = Math.min(
+      Math.max(0, source.usableStart + freeSpace * variationPosition(generation, index)),
+      Math.max(0, source.duration - duration)
+    )
+    const transitionDuration = allocation.transitionDurations[index]
+    return {
+      id: `segment-${(index + 1).toString().padStart(3, '0')}`,
+      sourcePath: source.path,
+      filename: source.filename,
+      sourceDuration: source.duration,
+      start: Math.round(start * 1000) / 1000,
+      duration,
+      end: Math.round((start + duration) * 1000) / 1000,
+      hasAudio: source.hasAudio,
+      sourceWidth: source.video.width,
+      sourceHeight: source.video.height,
+      sourceFrameRate: source.video.frameRate,
+      sourceRotation: source.video.rotation,
+      transitionToNext: transitionDuration == null
+        ? null
+        : { type: settings.transitionPreference, duration: transitionDuration }
+    }
+  })
+
+  return {
+    version: 1,
+    id: randomUUID(),
+    projectId,
+    generation,
+    createdAt: new Date().toISOString(),
+    settingsFingerprint,
+    segments,
+    output: {
+      width: output.width,
+      height: output.height,
+      frameRate: output.frameRate,
+      aspectRatio: settings.aspectRatio,
+      fitMode: settings.fitMode,
+      quality: settings.quality
+    },
+    pace: settings.pace,
+    useEveryClip: settings.useEveryClip,
+    requestedDuration: settings.targetDuration,
+    expectedDuration: allocation.expectedDuration,
+    audio: structuredClone(settings.audio),
+    warnings: allocation.warnings
+  }
+}
+
+// Phase 2 compatibility helper used by existing tests and integrations.
 export function createRenderPlan(
   paths: string[],
   metadata: ProbedMedia[],
   settings: RenderSettings
 ): PlannedSegment[] {
-  const sources = paths.map((path, index) => ({
-    path,
-    filename: basename(path),
-    ...metadata[index]
-  }))
+  const sources = paths.map((path, index) => ({ path, filename: basename(path), ...metadata[index] }))
   return arrangeSources(sources, settings.editingMode, settings.aspectRatio).map((source) =>
     selectSegment(source, settings.pace)
   )
