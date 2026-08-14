@@ -1,9 +1,11 @@
 import type { RenderAudioSettings } from '@shared/types'
+import { accurateLoudnessFilter, fastLoudnessFilter, type LoudnessMeasurements } from './loudness-normalizer'
 
 export function sourceAudioFilter(
   inputLabel: string,
   duration: number,
-  settings: RenderAudioSettings
+  settings: RenderAudioSettings,
+  measurements: LoudnessMeasurements | null = null
 ): string {
   const filters = [
     'aresample=48000:async=1:first_pts=0',
@@ -11,8 +13,10 @@ export function sourceAudioFilter(
     `atrim=0:${duration.toFixed(3)}`,
     'asetpts=PTS-STARTPTS'
   ]
-  if (settings.normalizeClipAudio) {
-    filters.push('loudnorm=I=-16:LRA=11:TP=-1.5:linear=true')
+  if (settings.normalizationMode === 'accurate' && measurements) {
+    filters.push(accurateLoudnessFilter(measurements))
+  } else if (settings.normalizationMode !== 'off') {
+    filters.push(fastLoudnessFilter())
   }
   filters.push(`volume=${(settings.originalAudioVolume / 100).toFixed(3)}`)
   return `[${inputLabel}]${filters.join(',')}[audio]`

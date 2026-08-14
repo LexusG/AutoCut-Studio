@@ -53,8 +53,22 @@ export function useVideoRender(): {
         settingsFingerprint: createRenderFingerprint(projectSettings, sourcePaths),
         settings: toRenderSettings(projectSettings)
       })
-      if (outcome.success) completePreview(outcome.result)
-      else showDurationIssue(outcome.issue)
+      if (outcome.success) {
+        completePreview(outcome.result)
+        const current = useAppStore.getState()
+        const removable = [...current.previewHistory]
+          .reverse()
+          .filter((version) => !version.approved && version.id !== current.selectedPreviewId)
+        while (useAppStore.getState().previewHistory.length > 10 && removable.length > 0) {
+          const version = removable.shift()!
+          try {
+            await window.autoCut.deletePreviewFiles(version.artifact.outputPath, version.thumbnailPath)
+            useAppStore.getState().removePreviewVersion(version.id)
+          } catch {
+            break
+          }
+        }
+      } else showDurationIssue(outcome.issue)
     } catch (error) {
       const message = renderErrorMessage(error)
       if (message.toLowerCase().includes('cancel')) markRenderCancelled()

@@ -32,6 +32,7 @@ export interface AutoCutApi {
   onRenderProgress: (callback: (progress: RenderProgress) => void) => () => void
   openFile: (path: string) => Promise<string>
   showItemInFolder: (path: string) => Promise<void>
+  deletePreviewFiles: (videoPath: string, thumbnailPath: string) => Promise<void>
   getPathForFile: (file: File) => string
 }
 
@@ -52,5 +53,6 @@ export const IPC_CHANNELS = {
   cancelRender: 'video:cancel-render',
   renderProgress: 'video:render-progress',
   openFile: 'files:open',
-  showItemInFolder: 'files:show-in-folder'
+  showItemInFolder: 'files:show-in-folder',
+  deletePreviewFiles: 'preview:delete-files'
 } as const

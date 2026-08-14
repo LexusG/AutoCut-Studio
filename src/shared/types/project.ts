@@ -6,7 +6,12 @@ import type {
   OutputFrameRate,
   PreviewQuality,
   RenderQuality,
-  TransitionPreference
+  TransitionPreference,
+  SelectionMode,
+  AnalysisQuality,
+  FitBackgroundMode,
+  BlurStrength,
+  AudioNormalizationMode
 } from './render'
 
 export type PlatformId = 'instagram' | 'youtube' | 'linkedin' | 'custom'
@@ -44,6 +49,15 @@ export interface VideoOutputSettings {
   audioCodec: AudioCodec
   quality: RenderQuality
   fitMode: FitMode
+  fitBackground: FitBackgroundMode
+  blurStrength: BlurStrength
+}
+
+export interface SmartPreferences {
+  preferPeople: boolean
+  preferMotion: boolean
+  preferClearFootage: boolean
+  preferAudibleMoments: boolean
 }
 
 export interface EditingSettings {
@@ -53,6 +67,10 @@ export interface EditingSettings {
   targetDuration: TargetDurationSettings
   transitionPreference: TransitionPreference
   transitionDuration: number
+  selectionMode: SelectionMode
+  analysisQuality: AnalysisQuality
+  smartPreferences: SmartPreferences
+  selectionSeed: number
 }
 
 export interface AudioTrack {
@@ -74,7 +92,25 @@ export interface FadeSettings {
   duration: number
 }
 
+export interface SoundtrackTrack extends AudioTrack {
+  enabled: boolean
+  volume: number
+  startPosition: number
+  fadeIn: FadeSettings
+  fadeOut: FadeSettings
+}
+
+export interface SoundtrackSettings {
+  enabled: boolean
+  tracks: SoundtrackTrack[]
+  masterVolume: number
+  loop: boolean
+  crossfadeEnabled: boolean
+  crossfadeDuration: number
+}
+
 export interface ProjectAudioSettings {
+  /** Phase 2/3 compatibility field. Version 3 projects use soundtrack.tracks. */
   backgroundTrack: AudioTrack | null
   musicVolume: number
   preserveOriginalAudio: boolean
@@ -85,6 +121,9 @@ export interface ProjectAudioSettings {
   fadeIn: FadeSettings
   fadeOut: FadeSettings
   duckMusicDuringClipAudio: boolean
+  soundtrack: SoundtrackSettings
+  normalizationMode: AudioNormalizationMode
+  normalizeFinalMix: boolean
 }
 
 export interface ProjectSettings {
@@ -101,12 +140,29 @@ export interface ProjectSettings {
 }
 
 export interface ProjectFile {
-  version: 2
+  version: 3
   id: string
   createdAt: string
   updatedAt: string
   settings: ProjectSettings
   sourcePaths: string[]
+  previewHistory: PreviewVersion[]
+}
+
+export interface PreviewVersion {
+  id: string
+  versionNumber: number
+  createdAt: string
+  artifact: import('./render').RenderArtifact
+  thumbnailPath: string
+  thumbnailUrl: string
+  approved: boolean
+  outdated: boolean
+  presetName: string
+  pace: EditingPace
+  selectionMode: SelectionMode
+  targetDuration: number | null
+  settingsSnapshot: ProjectSettings
 }
 
 export interface LoadedProject {

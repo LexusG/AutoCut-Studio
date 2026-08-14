@@ -98,6 +98,34 @@ describe('project settings persistence', () => {
     expect(issues.some((issue) => issue.code === 'target-every-clip')).toBe(true)
   })
 
+  it('migrates a Phase 2/3 single music track into the Phase 4 soundtrack schema', () => {
+    const settings = createDefaultProjectSettings()
+    settings.audio.backgroundTrack = track
+    settings.audio.musicVolume = 34
+    settings.audio.musicStartPosition = 3.5
+    const legacy = {
+      ...createProjectFile(settings, ['/clips/a.mp4']),
+      version: 2,
+      settings: {
+        ...settings,
+        output: { ...settings.output, fitBackground: undefined, blurStrength: undefined },
+        editing: { ...settings.editing, selectionMode: undefined, analysisQuality: undefined, smartPreferences: undefined },
+        audio: { ...settings.audio, soundtrack: undefined, normalizationMode: undefined, normalizeFinalMix: undefined }
+      },
+      previewHistory: undefined
+    }
+    const migrated = parseProjectFile(JSON.stringify(legacy))
+    expect(migrated.version).toBe(3)
+    expect(migrated.settings.editing.selectionMode).toBe('classic')
+    expect(migrated.settings.output.fitBackground).toBe('black')
+    expect(migrated.settings.audio.normalizationMode).toBe('fast')
+    expect(migrated.settings.audio.soundtrack).toMatchObject({
+      enabled: true,
+      masterVolume: 34,
+      tracks: [expect.objectContaining({ path: track.path, startPosition: 3.5 })]
+    })
+  })
+
   it('generates and sanitizes output filenames while allowing overrides', () => {
     expect(createOutputFilename('Summer / Launch!', 'youtube-shorts')).toBe(
       'summer-launch_youtube-short.mp4'

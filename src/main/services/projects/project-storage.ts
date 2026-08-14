@@ -12,32 +12,60 @@ function recentProjectsPath(): string {
 }
 
 async function refreshLocalReferences(project: ProjectFile): Promise<ProjectFile> {
-  const track = project.settings.audio.backgroundTrack
-  if (!track) return project
-  try {
-    await access(track.path)
-    allowMediaPath(track.path)
-    return {
-      ...project,
-      settings: {
-        ...project.settings,
-        audio: {
-          ...project.settings.audio,
-          backgroundTrack: { ...track, missing: false, mediaUrl: createMediaUrl(track.path) }
+  const refreshTrack = async <Track extends { path: string; missing: boolean; mediaUrl: string }>(track: Track): Promise<Track> => {
+    try {
+      await access(track.path)
+      allowMediaPath(track.path)
+      return { ...track, missing: false, mediaUrl: createMediaUrl(track.path) }
+    } catch {
+      return { ...track, missing: true, mediaUrl: '' }
+    }
+  }
+  const backgroundTrack = project.settings.audio.backgroundTrack
+    ? await refreshTrack(project.settings.audio.backgroundTrack)
+    : null
+  const tracks = await Promise.all(project.settings.audio.soundtrack.tracks.map(refreshTrack))
+  const previewHistory = await Promise.all(project.previewHistory.map(async (version) => {
+    try {
+      await access(version.artifact.outputPath)
+      allowMediaPath(version.artifact.outputPath)
+      let thumbnailUrl = ''
+      try {
+        await access(version.thumbnailPath)
+        allowMediaPath(version.thumbnailPath)
+        thumbnailUrl = createMediaUrl(version.thumbnailPath)
+      } catch {
+        // The video remains usable when an optional thumbnail was cleaned externally.
+      }
+      return {
+        ...version,
+        thumbnailUrl,
+        artifact: {
+          ...version.artifact,
+          outputUrl: createMediaUrl(version.artifact.outputPath),
+          thumbnailUrl
         }
       }
-    }
-  } catch {
-    return {
-      ...project,
-      settings: {
-        ...project.settings,
-        audio: {
-          ...project.settings.audio,
-          backgroundTrack: { ...track, missing: true, mediaUrl: '' }
-        }
+    } catch {
+      return {
+        ...version,
+        outdated: true,
+        thumbnailUrl: '',
+        artifact: { ...version.artifact, outputUrl: '', thumbnailUrl: '' }
       }
     }
+  }))
+  return {
+    ...project,
+    settings: {
+      ...project.settings,
+      audio: {
+        ...project.settings.audio,
+        backgroundTrack,
+        soundtrack: { ...project.settings.audio.soundtrack, tracks }
+      }
+    },
+    previewHistory
   }
 }
 

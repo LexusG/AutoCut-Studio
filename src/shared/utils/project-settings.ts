@@ -56,7 +56,9 @@ export function createDefaultProjectSettings(): ProjectSettings {
       videoCodec: 'h264',
       audioCodec: 'aac',
       quality: 'balanced',
-      fitMode: 'crop'
+      fitMode: 'crop',
+      fitBackground: 'black',
+      blurStrength: 'medium'
     },
     editing: {
       arrangement: 'original-order',
@@ -64,7 +66,16 @@ export function createDefaultProjectSettings(): ProjectSettings {
       useEveryClip: true,
       targetDuration: { mode: 'auto', seconds: null },
       transitionPreference: 'crossfade',
-      transitionDuration: 0.5
+      transitionDuration: 0.5,
+      selectionMode: 'classic',
+      analysisQuality: 'balanced',
+      smartPreferences: {
+        preferPeople: false,
+        preferMotion: true,
+        preferClearFootage: true,
+        preferAudibleMoments: true
+      },
+      selectionSeed: 0
     },
     audio: {
       backgroundTrack: null,
@@ -76,7 +87,17 @@ export function createDefaultProjectSettings(): ProjectSettings {
       musicStartPosition: 0,
       fadeIn: { enabled: true, duration: 1 },
       fadeOut: { enabled: true, duration: 2 },
-      duckMusicDuringClipAudio: true
+      duckMusicDuringClipAudio: true,
+      soundtrack: {
+        enabled: true,
+        tracks: [],
+        masterVolume: 20,
+        loop: true,
+        crossfadeEnabled: true,
+        crossfadeDuration: 1.5
+      },
+      normalizationMode: 'fast',
+      normalizeFinalMix: false
     },
     outputFilename: createOutputFilename('Untitled project', 'custom'),
     outputFilenameCustom: false,
@@ -131,7 +152,8 @@ export function applyPlatformPreset(settings: ProjectSettings, presetId: string)
       aspectRatio: preset.aspectRatio,
       frameRate: preset.frameRate,
       videoCodec: preset.videoCodec,
-      audioCodec: preset.audioCodec
+      audioCodec: preset.audioCodec,
+      fitBackground: 'blurred'
     }
   })
 }
@@ -188,6 +210,10 @@ export function toRenderSettings(settings: ProjectSettings): RenderSettings {
     transitionDuration: settings.editing.transitionDuration,
     audio: {
       ...structuredClone(settings.audio),
+      musicVolume: settings.audio.soundtrack.tracks.length > 0 ? 100 : settings.audio.musicVolume,
+      loopBackgroundMusic: settings.audio.soundtrack.tracks.length > 0
+        ? settings.audio.soundtrack.loop
+        : settings.audio.loopBackgroundMusic,
       backgroundTrack: settings.audio.backgroundTrack
         ? {
             path: settings.audio.backgroundTrack.path,
@@ -195,8 +221,32 @@ export function toRenderSettings(settings: ProjectSettings): RenderSettings {
             duration: settings.audio.backgroundTrack.duration,
             missing: settings.audio.backgroundTrack.missing
           }
-        : null
-    }
+        : null,
+      soundtrackEnabled: settings.audio.soundtrack.enabled,
+      soundtrackTracks: settings.audio.soundtrack.tracks.map((track) => ({
+        id: track.id,
+        path: track.path,
+        filename: track.filename,
+        duration: track.duration,
+        missing: track.missing,
+        enabled: track.enabled,
+        volume: Math.round(track.volume * settings.audio.soundtrack.masterVolume) / 100,
+        startPosition: track.startPosition,
+        fadeIn: structuredClone(track.fadeIn),
+        fadeOut: structuredClone(track.fadeOut)
+      })),
+      soundtrackCrossfade: settings.audio.soundtrack.crossfadeEnabled
+        ? settings.audio.soundtrack.crossfadeDuration
+        : 0,
+      normalizationMode: settings.audio.normalizationMode,
+      normalizeFinalMix: settings.audio.normalizeFinalMix
+    },
+    selectionMode: settings.editing.selectionMode,
+    analysisQuality: settings.editing.analysisQuality,
+    smartPreferences: structuredClone(settings.editing.smartPreferences),
+    selectionSeed: settings.editing.selectionSeed,
+    fitBackground: settings.output.fitBackground,
+    blurStrength: settings.output.blurStrength
   }
 }
 
@@ -220,16 +270,18 @@ export function createRenderConfiguration(
 export function createProjectFile(
   settings: ProjectSettings,
   sourcePaths: string[],
-  existing?: Pick<ProjectFile, 'id' | 'createdAt'>
+  existing?: Pick<ProjectFile, 'id' | 'createdAt'>,
+  previewHistory: ProjectFile['previewHistory'] = []
 ): ProjectFile {
   const now = new Date().toISOString()
   return {
-    version: 2,
+    version: 3,
     id: existing?.id ?? crypto.randomUUID(),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     settings: structuredClone(settings),
-    sourcePaths: [...sourcePaths]
+    sourcePaths: [...sourcePaths],
+    previewHistory: structuredClone(previewHistory)
   }
 }
 
