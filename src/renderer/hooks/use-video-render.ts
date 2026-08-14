@@ -10,6 +10,7 @@ function renderErrorMessage(error: unknown): string {
 }
 
 export function useVideoRender(): {
+  analyzeEditPlan: (regenerate?: boolean) => Promise<void>
   generatePreview: (regenerate?: boolean) => Promise<void>
   approveAndExport: () => Promise<void>
   cancel: () => Promise<void>
@@ -21,6 +22,9 @@ export function useVideoRender(): {
   const previewResult = useAppStore((state) => state.previewResult)
   const previewOutdated = useAppStore((state) => state.previewOutdated)
   const previewGeneration = useAppStore((state) => state.previewGeneration)
+  const editPlan = useAppStore((state) => state.editPlan)
+  const editPlanOutdated = useAppStore((state) => state.editPlanOutdated)
+  const setEditPlan = useAppStore((state) => state.setEditPlan)
   const beginRender = useAppStore((state) => state.beginRender)
   const setRenderProgress = useAppStore((state) => state.setRenderProgress)
   const completePreview = useAppStore((state) => state.completePreview)
@@ -31,8 +35,39 @@ export function useVideoRender(): {
 
   useEffect(() => window.autoCut.onRenderProgress(setRenderProgress), [setRenderProgress])
 
-  const generatePreview = useCallback(async (regenerate = false) => {
+  const analyzeEditPlan = useCallback(async (regenerate = false) => {
     if (clips.length === 0 || activeRenderId) return
+    const blockingIssue = validateProjectSettings(projectSettings, clips.length, true).find(
+      (issue) => issue.severity === 'error'
+    )
+    if (blockingIssue) {
+      failRender(blockingIssue.message)
+      return
+    }
+    const generation = editPlan ? editPlan.generation + (regenerate ? 1 : 0) : previewGeneration
+    const renderId = crypto.randomUUID()
+    beginRender(renderId, 'analysis', generation)
+    try {
+      const sourcePaths = clips.map((clip) => clip.path)
+      const outcome = await window.autoCut.createEditPlan({
+        renderId, projectId, generation, sourcePaths,
+        settingsFingerprint: createRenderFingerprint(projectSettings, sourcePaths),
+        settings: toRenderSettings(projectSettings), currentPlan: editPlan
+      })
+      if (outcome.success) setEditPlan(outcome.plan)
+      else showDurationIssue(outcome.issue)
+    } catch (error) {
+      const message = renderErrorMessage(error)
+      if (message.toLowerCase().includes('cancel')) markRenderCancelled()
+      else failRender(message)
+    }
+  }, [activeRenderId, beginRender, clips, editPlan, failRender, markRenderCancelled, previewGeneration, projectId, projectSettings, setEditPlan, showDurationIssue])
+
+  const generatePreview = useCallback(async (regenerate = false) => {
+    if (clips.length === 0 || activeRenderId || !editPlan || editPlanOutdated) {
+      if (!editPlan || editPlanOutdated) failRender('Create or update the Edit Plan before generating a preview.')
+      return
+    }
     const blockingIssue = validateProjectSettings(projectSettings, clips.length, true).find(
       (issue) => issue.severity === 'error'
     )
@@ -51,7 +86,8 @@ export function useVideoRender(): {
         generation,
         sourcePaths,
         settingsFingerprint: createRenderFingerprint(projectSettings, sourcePaths),
-        settings: toRenderSettings(projectSettings)
+        settings: toRenderSettings(projectSettings),
+        plan: editPlan
       })
       if (outcome.success) {
         completePreview(outcome.result)
@@ -79,6 +115,8 @@ export function useVideoRender(): {
     beginRender,
     clips,
     completePreview,
+    editPlan,
+    editPlanOutdated,
     failRender,
     markRenderCancelled,
     previewGeneration,
@@ -124,5 +162,5 @@ export function useVideoRender(): {
     await window.autoCut.cancelRender(activeRenderId)
   }, [activeRenderId])
 
-  return { generatePreview, approveAndExport, cancel }
+  return { analyzeEditPlan, generatePreview, approveAndExport, cancel }
 }

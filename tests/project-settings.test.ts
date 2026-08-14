@@ -116,7 +116,12 @@ describe('project settings persistence', () => {
       previewHistory: undefined
     }
     const migrated = parseProjectFile(JSON.stringify(legacy))
-    expect(migrated.version).toBe(4)
+    expect(migrated.version).toBe(5)
+    expect(migrated.settings.editing.contentAwareness).toBe('off')
+    expect(migrated.settings.editing.speechCutProtection).toBe('off')
+    expect(migrated.settings.editing.cutSync).toBe('natural')
+    expect(migrated.settings.output.cropFocus).toBe('center')
+    expect(migrated.editPlan).toBeNull()
     expect(migrated.settings.editing.selectionMode).toBe('classic')
     expect(migrated.settings.output.fitBackground).toBe('black')
     expect(migrated.settings.audio.normalizationMode).toBe('fast')
@@ -186,7 +191,7 @@ describe('project settings persistence', () => {
       version: number
       previewHistory: Array<{ artifact: { outputPath: string; logPath: string }; thumbnailPath: string }>
     }
-    expect(serialized.version).toBe(4)
+    expect(serialized.version).toBe(5)
     expect(serialized.previewHistory[0].artifact.outputPath).toBe('')
     expect(serialized.previewHistory[0].artifact.logPath).toBe('')
     expect(serialized.previewHistory[0].thumbnailPath).toBe('')

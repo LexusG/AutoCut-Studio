@@ -13,7 +13,13 @@ import type {
   BlurStrength,
   AudioNormalizationMode,
   FinalMixNormalizationMode,
-  PersonAnalysisConfiguration
+  PersonAnalysisConfiguration,
+  ContentAwarenessMode,
+  CropFocusMode,
+  CutSyncMode,
+  DuckingTrigger,
+  RenderPlan,
+  SpeechCutProtection
 } from './render'
 
 export type PlatformId = 'instagram' | 'youtube' | 'linkedin' | 'custom'
@@ -53,6 +59,7 @@ export interface VideoOutputSettings {
   fitMode: FitMode
   fitBackground: FitBackgroundMode
   blurStrength: BlurStrength
+  cropFocus: CropFocusMode
 }
 
 export interface SmartPreferences {
@@ -60,6 +67,7 @@ export interface SmartPreferences {
   preferMotion: boolean
   preferClearFootage: boolean
   preferAudibleMoments: boolean
+  preferSpeech: boolean
 }
 
 export interface EditingSettings {
@@ -73,6 +81,9 @@ export interface EditingSettings {
   analysisQuality: AnalysisQuality
   smartPreferences: SmartPreferences
   selectionSeed: number
+  contentAwareness: ContentAwarenessMode
+  speechCutProtection: SpeechCutProtection
+  cutSync: CutSyncMode
 }
 
 export interface AudioTrack {
@@ -126,6 +137,7 @@ export interface ProjectAudioSettings {
   soundtrack: SoundtrackSettings
   normalizationMode: AudioNormalizationMode
   finalMixNormalizationMode: FinalMixNormalizationMode
+  duckingTrigger: DuckingTrigger
 }
 
 export type PreviewStorageState = 'available' | 'missing' | 'migrating'
@@ -151,13 +163,14 @@ export interface ProjectSettings {
 }
 
 export interface ProjectFile {
-  version: 4
+  version: 5
   id: string
   createdAt: string
   updatedAt: string
   settings: ProjectSettings
   sourcePaths: string[]
   previewHistory: PreviewVersion[]
+  editPlan: RenderPlan | null
 }
 
 export interface PreviewVersion {

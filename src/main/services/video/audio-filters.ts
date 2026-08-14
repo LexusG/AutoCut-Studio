@@ -1,4 +1,4 @@
-import type { RenderAudioSettings } from '@shared/types'
+import type { RenderAudioSettings, TimeRegion } from '@shared/types'
 import { accurateLoudnessFilter, fastLoudnessFilter, type LoudnessMeasurements } from './loudness-normalizer'
 
 export function sourceAudioFilter(
@@ -32,7 +32,8 @@ export function musicMixFilters(
   baseAudioLabel: string,
   duration: number,
   settings: RenderAudioSettings,
-  ducking: boolean
+  ducking: boolean,
+  speechRegions: TimeRegion[] = []
 ): MusicMixFilters {
   const music = [
     'aresample=48000:async=1:first_pts=0',
@@ -49,12 +50,19 @@ export function musicMixFilters(
     music.push(`afade=t=out:st=${Math.max(0, duration - fadeDuration).toFixed(3)}:d=${fadeDuration.toFixed(3)}`)
   }
   music.push(`apad=pad_dur=${duration.toFixed(3)}`, `atrim=0:${duration.toFixed(3)}`)
+  const speechDucking = ducking && settings.duckingTrigger !== 'audio-level' && speechRegions.length > 0
+  if (speechDucking) {
+    const activity = speechRegions.map((region) =>
+      `between(t\\,${region.startTime.toFixed(3)}\\,${region.endTime.toFixed(3)})`
+    ).join('+')
+    music.push(`volume='if(gt(${activity}\\,0)\\,0.30\\,1)':eval=frame`)
+  }
 
   const filters = [
     `[${baseAudioLabel}]apad=pad_dur=${duration.toFixed(3)},atrim=0:${duration.toFixed(3)}[sourceaudio]`,
     `[${musicInputIndex}:a:0]${music.join(',')}[music]`
   ]
-  if (ducking) {
+  if (ducking && !speechDucking) {
     filters.push(
       '[sourceaudio]asplit=2[sourcebed][sidechain]',
       '[music][sidechain]sidechaincompress=threshold=0.035:ratio=4:attack=25:release=300[duckedmusic]',

@@ -27,6 +27,9 @@ export interface RawCandidateMetrics {
   sceneQuality: number
   blackFramePenalty: number
   duplicatePenalty: number
+  speechActivity?: number
+  speechBoundaryQuality?: number
+  speechCompleteness?: number
 }
 
 const clamp = (value: number): number => Math.max(0, Math.min(1, value))
@@ -35,6 +38,9 @@ export function scoreCandidate(
   metrics: RawCandidateMetrics,
   preferences: RenderSettings['smartPreferences']
 ): CandidateScores {
+  const speechActivity = metrics.speechActivity ?? 0
+  const speechBoundaryQuality = metrics.speechBoundaryQuality ?? 0
+  const speechCompleteness = metrics.speechCompleteness ?? 0
   const weights = {
     ...BASE_WEIGHTS,
     sharpness: BASE_WEIGHTS.sharpness * (preferences.preferClearFootage ? 1.45 : 1),
@@ -42,7 +48,10 @@ export function scoreCandidate(
     audioActivity: BASE_WEIGHTS.audioActivity * (preferences.preferAudibleMoments ? 1.5 : 0.6),
     personPresence: preferences.preferPeople
       ? PERSON_ANALYSIS_POLICY.preferredWeight
-      : PERSON_ANALYSIS_POLICY.baseWeight
+      : PERSON_ANALYSIS_POLICY.baseWeight,
+    speechActivity: preferences.preferSpeech ? 0.16 : 0.025,
+    speechBoundaryQuality: 0.06,
+    speechCompleteness: preferences.preferSpeech ? 0.1 : 0.02
   }
   const positive =
     metrics.sharpness * weights.sharpness +
@@ -51,16 +60,20 @@ export function scoreCandidate(
     metrics.stability * weights.stability +
     metrics.audioActivity * weights.audioActivity +
     metrics.personPresence * weights.personPresence +
-    metrics.sceneQuality * weights.sceneQuality
+    metrics.sceneQuality * weights.sceneQuality +
+    speechActivity * weights.speechActivity +
+    speechBoundaryQuality * weights.speechBoundaryQuality +
+    speechCompleteness * weights.speechCompleteness
   const weightTotal =
     weights.sharpness + weights.exposure + weights.motion + weights.stability +
-    weights.audioActivity + weights.personPresence + weights.sceneQuality
+    weights.audioActivity + weights.personPresence + weights.sceneQuality +
+    weights.speechActivity + weights.speechBoundaryQuality + weights.speechCompleteness
   const total = clamp(
     positive / weightTotal -
       metrics.blackFramePenalty * weights.blackFramePenalty -
       metrics.duplicatePenalty * weights.duplicatePenalty
   )
-  return { ...metrics, total }
+  return { ...metrics, speechActivity, speechBoundaryQuality, speechCompleteness, total }
 }
 
 export function analysisReasons(scores: CandidateScores, personDetected = false): string[] {
@@ -72,6 +85,7 @@ export function analysisReasons(scores: CandidateScores, personDetected = false)
   if (scores.motion >= 0.6) reasons.push('Useful motion')
   if (scores.stability >= 0.72) reasons.push('Stable camera movement')
   if (scores.audioActivity >= 0.55) reasons.push('Audible activity')
+  if (scores.speechActivity >= 0.45) reasons.push('Speech activity present')
   if (personDetected && scores.personPresence >= 0.72) reasons.push('Person consistently visible')
   else if (personDetected && scores.personPresence >= 0.4) reasons.push('Person detected')
   if (scores.sceneQuality >= 0.6) reasons.push('Natural scene timing')

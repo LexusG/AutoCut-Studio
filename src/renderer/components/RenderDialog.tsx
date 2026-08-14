@@ -37,8 +37,8 @@ export function RenderDialog({ onCancel }: { onCancel: () => Promise<void> }): R
         {status === 'rendering' && (
           <>
             <span className="render-status-icon render-status-active"><LoaderCircle className="spin" size={25} /></span>
-            <h2 id="render-title">{operation === 'export' ? 'Exporting approved video' : 'Generating preview'}</h2>
-            <p className="render-stage">{progress?.stage ?? 'Starting render'}</p>
+            <h2 id="render-title">{operation === 'export' ? 'Exporting approved video' : operation === 'analysis' ? 'Creating Edit Plan' : 'Generating preview'}</h2>
+            <p className="render-stage">{progress?.stage ?? (operation === 'analysis' ? 'Starting analysis' : 'Starting render')}</p>
             <div className="render-progress-copy">
               <span>
                 {progress?.currentClipIndex
@@ -96,7 +96,7 @@ export function RenderDialog({ onCancel }: { onCancel: () => Promise<void> }): R
         {status === 'error' && (
           <>
             <span className="render-status-icon render-status-error"><CircleX size={27} /></span>
-            <h2 id="render-title">{operation === 'export' ? 'Export failed' : 'Preview generation failed'}</h2>
+            <h2 id="render-title">{operation === 'export' ? 'Export failed' : operation === 'analysis' ? 'Edit Plan analysis failed' : 'Preview generation failed'}</h2>
             <p className="render-message">No source footage was changed.</p>
             <details className="render-error-details">
               <summary>Show Technical Details</summary>
@@ -109,7 +109,7 @@ export function RenderDialog({ onCancel }: { onCancel: () => Promise<void> }): R
         {status === 'cancelled' && (
           <>
             <span className="render-status-icon"><OctagonX size={27} /></span>
-            <h2 id="render-title">Render cancelled</h2>
+            <h2 id="render-title">{operation === 'analysis' ? 'Analysis cancelled' : 'Render cancelled'}</h2>
             <p className="render-message">Incomplete files were removed. Your project and source media are unchanged.</p>
             <button className="button button-secondary" type="button" onClick={dismiss}>Close</button>
           </>

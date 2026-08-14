@@ -184,6 +184,11 @@ export function buildRenderPlan(
       sourceFrameRate: source.video.frameRate,
       sourceRotation: source.video.rotation,
       selectedCandidate: null,
+      selectionSource: 'classic' as const,
+      locked: false,
+      automaticStart: Math.round(start * 1000) / 1000,
+      automaticEnd: Math.round((start + duration) * 1000) / 1000,
+      cropPlan: null,
       transitionToNext: transitionDuration == null
         ? null
         : { type: settings.transitionPreference, duration: transitionDuration }
@@ -191,7 +196,7 @@ export function buildRenderPlan(
   })
 
   return {
-    version: 1,
+    version: 2,
     id: randomUUID(),
     projectId,
     generation,
@@ -219,7 +224,13 @@ export function buildRenderPlan(
     finalLoudnessTarget: { ...LOUDNESS_TARGET },
     fitBackground: settings.fitBackground,
     blurStrength: settings.blurStrength,
-    previewVersion: generation + 1
+    previewVersion: generation + 1,
+    revision: 1,
+    contentAwareness: settings.contentAwareness,
+    speechCutProtection: settings.speechCutProtection,
+    cutSync: settings.cutSync,
+    cropFocus: settings.cropFocus,
+    beatAnalysis: null
   }
 }
 

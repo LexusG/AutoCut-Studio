@@ -1,8 +1,11 @@
 import { appendFile, copyFile, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import type {
   ExportRenderRequest,
+  EditPlanOutcome,
+  EditPlanRequest,
   PreviewRenderOutcome,
   PreviewRenderRequest,
   RenderArtifact,
@@ -28,6 +31,7 @@ import { InfeasibleDurationError } from './segment-allocator'
 import { probeMedia } from './metadata'
 import { applySmartSelection } from './smart/smart-selection'
 import type { PersonPresenceProvider } from './smart/optional-ml'
+import { applyContentAwareness, preserveLockedSegments } from './content/content-plan'
 
 const activeRenders = new Map<string, AbortController>()
 
@@ -84,10 +88,70 @@ export function cancelRender(renderId: string): boolean {
   return true
 }
 
-export async function generatePreview(
-  request: PreviewRenderRequest,
+export async function createEditPlan(
+  request: EditPlanRequest,
   onProgress: (progress: RenderProgress) => void,
   personProvider?: PersonPresenceProvider
+): Promise<EditPlanOutcome> {
+  const { controller, startedAt } = beginRender(request.renderId)
+  const { signal } = controller
+  const report = progressReporter(request.renderId, startedAt, request.sourcePaths.length, onProgress)
+  let directory: string | null = null
+  try {
+    directory = await mkdtemp(join(tmpdir(), 'autocut-edit-plan-'))
+    const logPath = join(directory, 'analysis.log')
+    const status = await detectFfmpeg()
+    if (!status.ffmpeg.path || !status.ffprobe.path || !status.ready) {
+      throw new Error('FFmpeg and FFprobe are required to analyze an edit plan.')
+    }
+    report('Analyzing clips', 0)
+    const metadata = []
+    for (let index = 0; index < request.sourcePaths.length; index += 1) {
+      assertNotCancelled(signal)
+      metadata.push(await probeMedia(status.ffprobe.path, request.sourcePaths[index]))
+      report('Analyzing clips', ((index + 1) / request.sourcePaths.length) * 12, index + 1, basename(request.sourcePaths[index]))
+    }
+    let plan: RenderPlan
+    try {
+      plan = buildRenderPlan(
+        request.projectId, request.generation, request.sourcePaths, metadata,
+        request.settingsFingerprint, request.settings
+      )
+    } catch (error) {
+      if (error instanceof InfeasibleDurationError) {
+        return { success: false, issue: {
+          code: 'target-too-short', message: error.message,
+          requestedDuration: error.requestedDuration,
+          minimumDuration: Math.ceil(error.minimumDuration), clipCount: error.clipCount
+        } }
+      }
+      throw error
+    }
+    if (request.settings.selectionMode === 'smart') {
+      plan = await applySmartSelection(
+        status.ffmpeg.path, plan, request.settings, signal,
+        (index, filename, stage) => report(stage, 12 + ((index + 0.5) / plan.segments.length) * 45, index + 1, filename),
+        logPath, personProvider
+      )
+    }
+    plan = await applyContentAwareness(
+      status.ffmpeg.path, plan, request.settings, signal,
+      (stage, index, filename) => report(stage, stage === 'Detecting speech' ? 58 + (((index ?? 0) + 0.5) / plan.segments.length) * 28 : stage === 'Analyzing music' ? 88 : 94, index == null ? null : index + 1, filename ?? null)
+    )
+    plan = preserveLockedSegments(plan, request.currentPlan)
+    report('Complete', 100)
+    return { success: true, plan }
+  } catch (error) {
+    throw friendlyRenderError(error, signal)
+  } finally {
+    activeRenders.delete(request.renderId)
+    if (directory) await rm(directory, { recursive: true, force: true })
+  }
+}
+
+export async function generatePreview(
+  request: PreviewRenderRequest,
+  onProgress: (progress: RenderProgress) => void
 ): Promise<PreviewRenderOutcome> {
   const { controller, startedAt } = beginRender(request.renderId)
   const { signal } = controller
@@ -98,57 +162,16 @@ export async function generatePreview(
     if (!status.ffmpeg.path || !status.ffprobe.path || !status.ready) {
       throw new Error('FFmpeg and FFprobe are required to generate a preview.')
     }
-    report('Analyzing clips', 0)
-    const metadata = []
-    for (let index = 0; index < request.sourcePaths.length; index += 1) {
-      assertNotCancelled(signal)
-      metadata.push(await probeMedia(status.ffprobe.path, request.sourcePaths[index]))
-      report('Analyzing clips', ((index + 1) / request.sourcePaths.length) * 10, index + 1, basename(request.sourcePaths[index]))
-    }
-
-    report('Planning edit', 12)
+    report('Planning edit', 0)
     let plan: RenderPlan
     let thumbnailReady = false
-    try {
-      plan = buildRenderPlan(
-        request.projectId,
-        request.generation,
-        request.sourcePaths,
-        metadata,
-        request.settingsFingerprint,
-        request.settings
-      )
-    } catch (error) {
-      if (error instanceof InfeasibleDurationError) {
-        return {
-          success: false,
-          issue: {
-            code: 'target-too-short',
-            message: error.message,
-            requestedDuration: error.requestedDuration,
-            minimumDuration: Math.ceil(error.minimumDuration),
-            clipCount: error.clipCount
-          }
-        }
-      }
-      throw error
+    plan = { ...structuredClone(request.plan), id: randomUUID() }
+    if (plan.projectId !== request.projectId || plan.settingsFingerprint !== request.settingsFingerprint) {
+      throw new Error('The Edit Plan is outdated. Analyze the project again before generating a preview.')
     }
 
     workspace = await createPreviewWorkspace(request.projectId, request.renderId, plan)
-    if (request.settings.selectionMode === 'smart') {
-      plan = await applySmartSelection(
-        status.ffmpeg.path,
-        plan,
-        request.settings,
-        signal,
-        (index, filename, stage) => {
-          report(stage, 12 + ((index + 0.5) / plan.segments.length) * 8, index + 1, filename)
-        },
-        workspace.logPath,
-        personProvider
-      )
-      await writeFile(workspace.planPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
-    }
+    await writeFile(workspace.planPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
     const dimensions = renderDimensions(plan, request.settings.previewQuality)
     let currentStage: RenderStage = 'Preparing clips'
     const execution = await executeRender({
@@ -162,12 +185,12 @@ export async function generatePreview(
       logPath: workspace.logPath,
       onStage: (stage) => {
         currentStage = stage
-        report(stage, stage === 'Creating transitions' || stage === 'Mixing audio' ? 72 : 15)
+        report(stage, stage === 'Creating transitions' || stage === 'Mixing audio' ? 72 : 5)
       },
       onClipProgress: (index, fraction) => {
         if (index < plan.segments.length) {
           const clip = plan.segments[index]
-          report(currentStage, 15 + ((index + fraction) / plan.segments.length) * 55, index + 1, clip.filename)
+          report(currentStage, 5 + ((index + fraction) / plan.segments.length) * 65, index + 1, clip.filename)
         } else {
           report(currentStage, 72 + fraction * 22)
         }
@@ -321,8 +344,8 @@ export async function exportApprovedPreview(
       reusedPreview,
       logPath,
       thumbnailPath: request.plan.previewVersion ? request.previewPath.replace(/preview\.mp4$/, 'thumbnail.jpg') : '',
-      thumbnailUrl: ''
-      , finalLoudness
+      thumbnailUrl: '',
+      finalLoudness
     }
   } catch (error) {
     await rm(partialPath, { force: true })
