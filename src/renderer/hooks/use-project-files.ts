@@ -29,6 +29,7 @@ export function useProjectFiles(): ProjectFileActions {
   const projectId = useAppStore((state) => state.projectId)
   const projectCreatedAt = useAppStore((state) => state.projectCreatedAt)
   const projectFilePath = useAppStore((state) => state.projectFilePath)
+  const previewHistory = useAppStore((state) => state.previewHistory)
   const markSaved = useAppStore((state) => state.markProjectSaved)
   const loadProject = useAppStore((state) => state.loadProject)
   const setRecentProjects = useAppStore((state) => state.setRecentProjects)
@@ -116,7 +117,8 @@ export function useProjectFiles(): ProjectFileActions {
       const project = createProjectFile(
         settings,
         clips.map((clip) => clip.path),
-        { id: projectId, createdAt: projectCreatedAt }
+        { id: projectId, createdAt: projectCreatedAt },
+        previewHistory
       )
       const saved = await window.autoCut.saveProject(project, projectFilePath)
       if (!saved) return false
@@ -130,7 +132,7 @@ export function useProjectFiles(): ProjectFileActions {
     } finally {
       setBusy(false)
     }
-  }, [clearFeedback, clips, markSaved, projectCreatedAt, projectFilePath, projectId, refreshRecent, settings])
+  }, [clearFeedback, clips, markSaved, previewHistory, projectCreatedAt, projectFilePath, projectId, refreshRecent, settings])
 
   const removeRecent = useCallback(
     async (path: string): Promise<void> => {

@@ -9,6 +9,7 @@ import type {
   MediaClip,
   PlatformId,
   PreviewQuality,
+  PreviewVersion,
   ProjectAudioSettings,
   ProjectFile,
   ProjectSettings,
@@ -22,6 +23,8 @@ import type {
 import {
   applyPlatformPreset,
   createDefaultProjectSettings,
+  getPresetDisplayName,
+  targetDurationInSeconds,
   updateOutputFilename,
   updateOutputSettings,
   updateProjectName
@@ -48,6 +51,8 @@ interface AppState {
   renderOperation: RenderOperation | null
   renderProgress: RenderProgress | null
   previewResult: RenderArtifact | null
+  previewHistory: PreviewVersion[]
+  selectedPreviewId: string | null
   exportResult: RenderArtifact | null
   previewOutdated: boolean
   previewGeneration: number
@@ -83,6 +88,9 @@ interface AppState {
   setRenderProgress: (progress: RenderProgress) => void
   completePreview: (result: RenderArtifact) => void
   completeExport: (result: RenderArtifact) => void
+  selectPreviewVersion: (id: string) => void
+  removePreviewVersion: (id: string) => void
+  restorePreviewSettings: (id: string) => void
   showDurationIssue: (issue: DurationConstraintIssue) => void
   useMinimumDuration: () => void
   failRender: (message: string) => void
@@ -95,6 +103,8 @@ function freshProjectIdentity(): { projectId: string; projectCreatedAt: string }
 }
 
 const initialIdentity = freshProjectIdentity()
+const outdatedHistory = (history: PreviewVersion[]): PreviewVersion[] =>
+  history.map((version) => ({ ...version, outdated: true }))
 
 export const useAppStore = create<AppState>((set) => ({
   screen: 'home',
@@ -112,6 +122,8 @@ export const useAppStore = create<AppState>((set) => ({
   renderOperation: null,
   renderProgress: null,
   previewResult: null,
+  previewHistory: [],
+  selectedPreviewId: null,
   exportResult: null,
   previewOutdated: false,
   previewGeneration: 0,
@@ -131,6 +143,8 @@ export const useAppStore = create<AppState>((set) => ({
     renderOperation: null,
     renderProgress: null,
     previewResult: null,
+    previewHistory: [],
+    selectedPreviewId: null,
     exportResult: null,
     previewOutdated: false,
     previewGeneration: 0,
@@ -138,7 +152,11 @@ export const useAppStore = create<AppState>((set) => ({
     renderError: null,
     activeRenderId: null
   }),
-  loadProject: (project, projectFilePath, clips, importFailures) => set({
+  loadProject: (project, projectFilePath, clips, importFailures) => {
+    const latest = [...project.previewHistory]
+      .filter((version) => Boolean(version.artifact.outputUrl))
+      .sort((left, right) => right.versionNumber - left.versionNumber)[0] ?? null
+    set({
     screen: 'editor',
     projectSettings: project.settings,
     projectId: project.id,
@@ -151,14 +169,17 @@ export const useAppStore = create<AppState>((set) => ({
     renderStatus: 'idle',
     renderOperation: null,
     renderProgress: null,
-    previewResult: null,
+    previewResult: latest?.artifact ?? null,
+    previewHistory: project.previewHistory,
+    selectedPreviewId: latest?.id ?? null,
     exportResult: null,
-    previewOutdated: false,
-    previewGeneration: 0,
+    previewOutdated: latest ? latest.outdated : false,
+    previewGeneration: Math.max(0, ...project.previewHistory.map((version) => version.versionNumber)),
     durationIssue: null,
     renderError: null,
     activeRenderId: null
-  }),
+    })
+  },
   returnHome: () => set({ screen: 'home' }),
   backToEdit: () => set({ screen: 'editor' }),
   showReview: () => set((state) => state.previewResult ? { screen: 'review' } : state),
@@ -173,6 +194,7 @@ export const useAppStore = create<AppState>((set) => ({
       projectDirty: newClips.length > 0 || state.projectDirty,
       selectedClipId: state.selectedClipId ?? newClips[0]?.id ?? null,
       previewOutdated: state.previewResult ? newClips.length > 0 || state.previewOutdated : false,
+      previewHistory: newClips.length > 0 ? outdatedHistory(state.previewHistory) : state.previewHistory,
       exportResult: newClips.length > 0 ? null : state.exportResult
     }
   }),
@@ -184,6 +206,7 @@ export const useAppStore = create<AppState>((set) => ({
       projectDirty: changed || state.projectDirty,
       selectedClipId: state.selectedClipId === id ? (clips[0]?.id ?? null) : state.selectedClipId,
       previewOutdated: state.previewResult ? changed || state.previewOutdated : false,
+      previewHistory: changed ? outdatedHistory(state.previewHistory) : state.previewHistory,
       exportResult: changed ? null : state.exportResult
     }
   }),
@@ -199,6 +222,7 @@ export const useAppStore = create<AppState>((set) => ({
       clips,
       projectDirty: true,
       previewOutdated: Boolean(state.previewResult),
+      previewHistory: outdatedHistory(state.previewHistory),
       exportResult: null
     }
   }),
@@ -215,6 +239,7 @@ export const useAppStore = create<AppState>((set) => ({
       projectSettings: applyPlatformPreset(state.projectSettings, presetId),
       projectDirty: true,
       previewOutdated: Boolean(state.previewResult),
+      previewHistory: outdatedHistory(state.previewHistory),
       exportResult: null
     }
   }),
@@ -222,12 +247,14 @@ export const useAppStore = create<AppState>((set) => ({
     projectSettings: applyPlatformPreset(state.projectSettings, presetId),
     projectDirty: true,
     previewOutdated: Boolean(state.previewResult),
+    previewHistory: outdatedHistory(state.previewHistory),
     exportResult: null
   })),
   updateOutput: (patch) => set((state) => ({
     projectSettings: updateOutputSettings(state.projectSettings, patch),
     projectDirty: true,
     previewOutdated: Boolean(state.previewResult),
+    previewHistory: outdatedHistory(state.previewHistory),
     exportResult: null
   })),
   updateEditing: (key, value) => set((state) => ({
@@ -237,6 +264,7 @@ export const useAppStore = create<AppState>((set) => ({
     },
     projectDirty: true,
     previewOutdated: Boolean(state.previewResult),
+    previewHistory: outdatedHistory(state.previewHistory),
     exportResult: null
   })),
   updateTargetDuration: (targetDuration) => set((state) => ({
@@ -246,6 +274,7 @@ export const useAppStore = create<AppState>((set) => ({
     },
     projectDirty: true,
     previewOutdated: Boolean(state.previewResult),
+    previewHistory: outdatedHistory(state.previewHistory),
     exportResult: null
   })),
   updateAudio: (key, value) => set((state) => ({
@@ -255,15 +284,42 @@ export const useAppStore = create<AppState>((set) => ({
     },
     projectDirty: true,
     previewOutdated: Boolean(state.previewResult),
+    previewHistory: outdatedHistory(state.previewHistory),
     exportResult: null
   })),
   setBackgroundTrack: (backgroundTrack) => set((state) => ({
-    projectSettings: {
-      ...state.projectSettings,
-      audio: { ...state.projectSettings.audio, backgroundTrack }
-    },
+    projectSettings: backgroundTrack
+      ? {
+          ...state.projectSettings,
+          audio: {
+            ...state.projectSettings.audio,
+            backgroundTrack: state.projectSettings.audio.backgroundTrack ?? backgroundTrack,
+            soundtrack: {
+              ...state.projectSettings.audio.soundtrack,
+              tracks: state.projectSettings.audio.soundtrack.tracks.some((track) => track.path === backgroundTrack.path)
+                ? state.projectSettings.audio.soundtrack.tracks
+                : [...state.projectSettings.audio.soundtrack.tracks, {
+                    ...backgroundTrack,
+                    enabled: true,
+                    volume: 100,
+                    startPosition: 0,
+                    fadeIn: { enabled: false, duration: 1 },
+                    fadeOut: { enabled: false, duration: 1 }
+                  }]
+            }
+          }
+        }
+      : {
+          ...state.projectSettings,
+          audio: {
+            ...state.projectSettings.audio,
+            backgroundTrack: null,
+            soundtrack: { ...state.projectSettings.audio.soundtrack, tracks: [] }
+          }
+        },
     projectDirty: true,
     previewOutdated: Boolean(state.previewResult),
+    previewHistory: outdatedHistory(state.previewHistory),
     exportResult: null
   })),
   setOutputFilename: (filename) => set((state) => ({
@@ -274,6 +330,7 @@ export const useAppStore = create<AppState>((set) => ({
     projectSettings: { ...state.projectSettings, previewQuality },
     projectDirty: true,
     previewOutdated: Boolean(state.previewResult),
+    previewHistory: outdatedHistory(state.previewHistory),
     exportResult: null
   })),
   markProjectSaved: (saved) => set({
@@ -281,6 +338,7 @@ export const useAppStore = create<AppState>((set) => ({
     projectId: saved.project.id,
     projectCreatedAt: saved.project.createdAt,
     projectSettings: saved.project.settings,
+    previewHistory: saved.project.previewHistory,
     projectDirty: false
   }),
   setRecentProjects: (recentProjects) => set({ recentProjects }),
@@ -296,22 +354,85 @@ export const useAppStore = create<AppState>((set) => ({
   setRenderProgress: (renderProgress) => set((state) =>
     state.activeRenderId === renderProgress.renderId ? { renderProgress } : state
   ),
-  completePreview: (previewResult) => set({
-    screen: 'review',
-    previewResult,
-    exportResult: null,
-    previewOutdated: false,
-    renderStatus: 'complete',
-    renderOperation: null,
-    activeRenderId: null,
-    renderError: null
+  completePreview: (incoming) => set((state) => {
+    const versionNumber = Math.max(0, ...state.previewHistory.map((version) => version.versionNumber)) + 1
+    const previewResult = {
+      ...incoming,
+      plan: { ...incoming.plan, previewVersion: versionNumber }
+    }
+    const record: PreviewVersion = {
+      id: previewResult.plan.id,
+      versionNumber,
+      createdAt: new Date().toISOString(),
+      artifact: previewResult,
+      thumbnailPath: previewResult.thumbnailPath,
+      thumbnailUrl: previewResult.thumbnailUrl,
+      approved: false,
+      outdated: false,
+      presetName: getPresetDisplayName(state.projectSettings),
+      pace: state.projectSettings.editing.pace,
+      selectionMode: state.projectSettings.editing.selectionMode,
+      targetDuration: targetDurationInSeconds(state.projectSettings),
+      settingsSnapshot: structuredClone(state.projectSettings)
+    }
+    return {
+      screen: 'review',
+      previewResult,
+      previewHistory: [record, ...outdatedHistory(state.previewHistory)],
+      selectedPreviewId: record.id,
+      exportResult: null,
+      previewOutdated: false,
+      renderStatus: 'complete',
+      renderOperation: null,
+      activeRenderId: null,
+      renderError: null,
+      projectDirty: true
+    }
   }),
-  completeExport: (exportResult) => set({
+  completeExport: (exportResult) => set((state) => ({
     exportResult,
+    previewHistory: state.previewHistory.map((version) =>
+      version.id === state.selectedPreviewId ? { ...version, approved: true } : version
+    ),
     renderStatus: 'complete',
     renderOperation: null,
     activeRenderId: null,
-    renderError: null
+    renderError: null,
+    projectDirty: true
+  })),
+  selectPreviewVersion: (id) => set((state) => {
+    const version = state.previewHistory.find((item) => item.id === id)
+    if (!version || !version.artifact.outputUrl) return state
+    return {
+      selectedPreviewId: id,
+      previewResult: version.artifact,
+      previewOutdated: version.outdated,
+      exportResult: null
+    }
+  }),
+  removePreviewVersion: (id) => set((state) => {
+    const previewHistory = state.previewHistory.filter((version) => version.id !== id)
+    const next = previewHistory[0] ?? null
+    return {
+      previewHistory,
+      selectedPreviewId: state.selectedPreviewId === id ? next?.id ?? null : state.selectedPreviewId,
+      previewResult: state.selectedPreviewId === id ? next?.artifact ?? null : state.previewResult,
+      previewOutdated: state.selectedPreviewId === id ? next?.outdated ?? false : state.previewOutdated,
+      projectDirty: true
+    }
+  }),
+  restorePreviewSettings: (id) => set((state) => {
+    const version = state.previewHistory.find((item) => item.id === id)
+    if (!version) return state
+    return {
+      projectSettings: structuredClone(version.settingsSnapshot),
+      projectDirty: true,
+      previewOutdated: false,
+      previewResult: version.artifact,
+      selectedPreviewId: id,
+      previewHistory: state.previewHistory.map((item) => ({ ...item, outdated: item.id !== id })),
+      exportResult: null
+    }
   }),
   showDurationIssue: (durationIssue) => set({
     durationIssue,

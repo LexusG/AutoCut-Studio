@@ -1,41 +1,58 @@
-import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ChevronDown, FolderSearch, LoaderCircle, Music2, Trash2, Upload } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, LoaderCircle, Music2, Trash2, Upload } from 'lucide-react'
+import type { SoundtrackTrack } from '@shared/types'
 import { useAudioImport } from '../hooks/use-audio-import'
 import { useAppStore } from '../stores/app-store'
 import { formatDuration, formatFileSize } from '../utils/format'
 
-function ToggleRow({
-  label,
-  checked,
-  onChange,
-  detail
-}: {
-  label: string
-  checked: boolean
-  onChange: (checked: boolean) => void
-  detail?: string
-}): React.JSX.Element {
-  return (
-    <label className="settings-toggle-row">
-      <span><strong>{label}</strong>{detail && <small>{detail}</small>}</span>
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
-    </label>
-  )
+function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }): React.JSX.Element {
+  return <label className="settings-toggle-row"><span><strong>{label}</strong></span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /></label>
 }
 
 export function AudioPanel(): React.JSX.Element {
   const [dragging, setDragging] = useState(false)
-  const audioRef = useRef<HTMLAudioElement>(null)
+  const [replacementError, setReplacementError] = useState<string | null>(null)
   const audio = useAppStore((state) => state.projectSettings.audio)
   const updateAudio = useAppStore((state) => state.updateAudio)
-  const setBackgroundTrack = useAppStore((state) => state.setBackgroundTrack)
   const { browse, importPath, loading, error, clearError } = useAudioImport()
-  const track = audio.backgroundTrack
+  const soundtrack = audio.soundtrack
 
-  useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = audio.musicVolume / 100
-  }, [audio.musicVolume, track?.id])
-
+  const updateSoundtrack = (patch: Partial<typeof soundtrack>): void =>
+    updateAudio('soundtrack', { ...soundtrack, ...patch })
+  const updateTrack = (id: string, patch: Partial<SoundtrackTrack>): void =>
+    updateSoundtrack({ tracks: soundtrack.tracks.map((track) => track.id === id ? { ...track, ...patch } : track) })
+  const removeTrack = (id: string): void =>
+    updateSoundtrack({ tracks: soundtrack.tracks.filter((track) => track.id !== id) })
+  const moveTrack = (index: number, direction: -1 | 1): void => {
+    const target = index + direction
+    if (target < 0 || target >= soundtrack.tracks.length) return
+    const tracks = [...soundtrack.tracks]
+    ;[tracks[index], tracks[target]] = [tracks[target], tracks[index]]
+    updateSoundtrack({ tracks })
+  }
+  const locateTrack = async (track: SoundtrackTrack): Promise<void> => {
+    const path = await window.autoCut.chooseAudioFile()
+    if (!path) return
+    const result = await window.autoCut.importAudioFile(path)
+    if (!result.track) {
+      setReplacementError(result.error ?? `Could not replace ${track.filename}.`)
+      return
+    }
+    const replacement: SoundtrackTrack = {
+      ...result.track,
+      id: track.id,
+      enabled: track.enabled,
+      volume: track.volume,
+      startPosition: Math.min(track.startPosition, Math.max(0, result.track.duration - 0.05)),
+      fadeIn: track.fadeIn,
+      fadeOut: track.fadeOut
+    }
+    updateSoundtrack({
+      tracks: soundtrack.tracks.map((item) => item.id === track.id ? replacement : item)
+    })
+    if (audio.backgroundTrack?.id === track.id) updateAudio('backgroundTrack', result.track)
+    setReplacementError(null)
+  }
   const handleDrop = (event: React.DragEvent): void => {
     event.preventDefault()
     setDragging(false)
@@ -45,84 +62,58 @@ export function AudioPanel(): React.JSX.Element {
 
   return (
     <details className="settings-details" open>
-      <summary><Music2 size={14} /> Audio <ChevronDown size={13} /></summary>
+      <summary><Music2 size={14} /> Soundtrack <ChevronDown size={13} /></summary>
       <div className="settings-details-body">
-        {!track && (
-          <div
-            className={`audio-drop-zone ${dragging ? 'audio-drop-zone-active' : ''}`}
-            onDragEnter={(event) => { event.preventDefault(); setDragging(true) }}
-            onDragOver={(event) => event.preventDefault()}
-            onDragLeave={(event) => {
-              if (event.currentTarget === event.target) setDragging(false)
-            }}
-            onDrop={handleDrop}
-          >
-            {loading ? <LoaderCircle className="spin" size={20} /> : <Upload size={19} />}
-            <strong>{loading ? 'Analyzing audio' : 'Add background audio'}</strong>
-            <span>MP3, WAV, AAC, M4A, OGG, FLAC</span>
-            <button type="button" onClick={() => void browse()} disabled={loading}>Browse audio</button>
-          </div>
-        )}
-
-        {error && (
-          <div className="audio-error" role="alert">
-            <AlertTriangle size={14} /><span>{error}</span>
-            <button type="button" onClick={clearError}>Dismiss</button>
-          </div>
-        )}
-
-        {track?.missing && (
-          <div className="missing-audio" role="alert">
-            <AlertTriangle size={18} />
-            <div><strong>Audio file missing</strong><span>{track.filename}</span></div>
-            <button className="icon-button" type="button" onClick={() => void browse()} title="Locate File" aria-label="Locate File">
-              <FolderSearch size={15} />
-            </button>
-            <button className="icon-button" type="button" onClick={() => setBackgroundTrack(null)} title="Remove Audio" aria-label="Remove Audio">
-              <Trash2 size={15} />
-            </button>
-          </div>
-        )}
-
-        {track && !track.missing && (
-          <div className="audio-card">
-            <div className="audio-card-title">
-              <span><Music2 size={16} /></span>
-              <div><strong title={track.path}>{track.filename}</strong><small>{track.codec.toUpperCase()} • {formatDuration(track.duration)} • {formatFileSize(track.size)}</small></div>
-              <button type="button" onClick={() => setBackgroundTrack(null)} title="Remove Audio" aria-label="Remove Audio">
-                <Trash2 size={14} />
-              </button>
-            </div>
-            <audio ref={audioRef} src={track.mediaUrl} controls preload="metadata" />
-            <div className="audio-technical">
-              <span>{track.sampleRate ? `${Math.round(track.sampleRate / 1000)} kHz` : 'Unknown rate'}</span>
-              <span>{track.channels ? `${track.channels} channels` : 'Unknown channels'}</span>
-              <span>{track.bitrate ? `${Math.round(track.bitrate / 1000)} kbps` : 'Variable bitrate'}</span>
-            </div>
-          </div>
-        )}
-
-        <label className="range-setting">
-          <span>Background Music Volume <strong>{audio.musicVolume}%</strong></span>
-          <input type="range" min="0" max="100" value={audio.musicVolume} onChange={(event) => updateAudio('musicVolume', Number(event.target.value))} />
-        </label>
-        <ToggleRow label="Preserve Original Clip Audio" checked={audio.preserveOriginalAudio} onChange={(value) => updateAudio('preserveOriginalAudio', value)} />
-        <label className={`range-setting ${!audio.preserveOriginalAudio ? 'setting-disabled' : ''}`}>
-          <span>Original Clip Audio Volume <strong>{audio.originalAudioVolume}%</strong></span>
-          <input type="range" min="0" max="100" value={audio.originalAudioVolume} disabled={!audio.preserveOriginalAudio} onChange={(event) => updateAudio('originalAudioVolume', Number(event.target.value))} />
-        </label>
-        <ToggleRow label="Normalize Clip Audio" checked={audio.normalizeClipAudio} onChange={(value) => updateAudio('normalizeClipAudio', value)} />
-        <ToggleRow label="Loop Background Music" checked={audio.loopBackgroundMusic} onChange={(value) => updateAudio('loopBackgroundMusic', value)} />
-        <label className="setting-field setting-field-number">
-          <span>Music start</span>
-          <div><input type="number" min="0" step="0.1" value={audio.musicStartPosition} onChange={(event) => updateAudio('musicStartPosition', Math.max(0, Number(event.target.value)))} /><small>sec</small></div>
-        </label>
-        <div className="fade-settings">
-          <ToggleRow label="Fade Music In" checked={audio.fadeIn.enabled} onChange={(enabled) => updateAudio('fadeIn', { ...audio.fadeIn, enabled })} />
-          <label><span>Duration</span><input type="number" min="0" step="0.1" value={audio.fadeIn.duration} onChange={(event) => updateAudio('fadeIn', { ...audio.fadeIn, duration: Math.max(0, Number(event.target.value)) })} /></label>
-          <ToggleRow label="Fade Music Out" checked={audio.fadeOut.enabled} onChange={(enabled) => updateAudio('fadeOut', { ...audio.fadeOut, enabled })} />
-          <label><span>Duration</span><input type="number" min="0" step="0.1" value={audio.fadeOut.duration} onChange={(event) => updateAudio('fadeOut', { ...audio.fadeOut, duration: Math.max(0, Number(event.target.value)) })} /></label>
+        <div
+          className={`audio-drop-zone audio-drop-zone-compact ${dragging ? 'audio-drop-zone-active' : ''}`}
+          onDragEnter={(event) => { event.preventDefault(); setDragging(true) }}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={(event) => { if (event.currentTarget === event.target) setDragging(false) }}
+          onDrop={handleDrop}
+        >
+          {loading ? <LoaderCircle className="spin" size={18} /> : <Upload size={17} />}
+          <strong>{loading ? 'Analyzing audio' : 'Add music track'}</strong>
+          <button type="button" onClick={() => void browse()} disabled={loading}>Browse audio</button>
         </div>
+
+        {(error || replacementError) && <div className="audio-error" role="alert"><AlertTriangle size={14} /><span>{error ?? replacementError}</span><button type="button" onClick={() => { clearError(); setReplacementError(null) }}>Dismiss</button></div>}
+
+        <div className="soundtrack-list">
+          {soundtrack.tracks.map((track, index) => (
+            <div className={`audio-card soundtrack-track ${!track.enabled ? 'soundtrack-track-disabled' : ''}`} key={track.id}>
+              <div className="audio-card-title">
+                <span className="track-order">{index + 1}</span>
+                <div><strong title={track.path}>{track.filename}</strong><small>{formatDuration(track.duration)} · {formatFileSize(track.size)}</small></div>
+                <div className="track-order-actions">
+                  <button type="button" onClick={() => moveTrack(index, -1)} disabled={index === 0} title="Move Up" aria-label={`Move ${track.filename} up`}><ArrowUp size={13} /></button>
+                  <button type="button" onClick={() => moveTrack(index, 1)} disabled={index === soundtrack.tracks.length - 1} title="Move Down" aria-label={`Move ${track.filename} down`}><ArrowDown size={13} /></button>
+                  <button type="button" onClick={() => removeTrack(track.id)} title="Remove Track" aria-label={`Remove ${track.filename}`}><Trash2 size={13} /></button>
+                </div>
+              </div>
+              {track.missing
+                ? <div className="track-missing"><AlertTriangle size={13} /><span>Audio file missing</span><button type="button" onClick={() => void locateTrack(track)}>Locate File</button></div>
+                : <audio src={track.mediaUrl} controls preload="metadata" />}
+              <ToggleRow label="Enabled" checked={track.enabled} onChange={(enabled) => updateTrack(track.id, { enabled })} />
+              <label className="range-setting"><span>Track Volume <strong>{track.volume}%</strong></span><input type="range" min="0" max="100" value={track.volume} onChange={(event) => updateTrack(track.id, { volume: Number(event.target.value) })} /></label>
+              <label className="setting-field setting-field-number"><span>Start offset</span><div><input type="number" min="0" max={track.duration} step="0.1" value={track.startPosition} onChange={(event) => updateTrack(track.id, { startPosition: Math.max(0, Number(event.target.value)) })} /><small>sec</small></div></label>
+              <div className="track-fades">
+                <label><input type="checkbox" checked={track.fadeIn.enabled} onChange={(event) => updateTrack(track.id, { fadeIn: { ...track.fadeIn, enabled: event.target.checked } })} /> Fade in</label>
+                <label><input type="checkbox" checked={track.fadeOut.enabled} onChange={(event) => updateTrack(track.id, { fadeOut: { ...track.fadeOut, enabled: event.target.checked } })} /> Fade out</label>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <ToggleRow label="Soundtrack Enabled" checked={soundtrack.enabled} onChange={(enabled) => updateSoundtrack({ enabled })} />
+        <label className="range-setting"><span>Master Music Volume <strong>{soundtrack.masterVolume}%</strong></span><input type="range" min="0" max="100" value={soundtrack.masterVolume} onChange={(event) => updateSoundtrack({ masterVolume: Number(event.target.value) })} /></label>
+        <ToggleRow label="Loop Soundtrack" checked={soundtrack.loop} onChange={(loop) => updateSoundtrack({ loop })} />
+        <ToggleRow label="Crossfade Music Tracks" checked={soundtrack.crossfadeEnabled} onChange={(crossfadeEnabled) => updateSoundtrack({ crossfadeEnabled })} />
+        {soundtrack.crossfadeEnabled && <label className="setting-field setting-field-number"><span>Crossfade</span><div><input type="number" min="0" max="5" step="0.1" value={soundtrack.crossfadeDuration} onChange={(event) => updateSoundtrack({ crossfadeDuration: Math.max(0, Number(event.target.value)) })} /><small>sec</small></div></label>}
+
+        <ToggleRow label="Preserve Original Clip Audio" checked={audio.preserveOriginalAudio} onChange={(value) => updateAudio('preserveOriginalAudio', value)} />
+        <label className={`range-setting ${!audio.preserveOriginalAudio ? 'setting-disabled' : ''}`}><span>Original Clip Audio Volume <strong>{audio.originalAudioVolume}%</strong></span><input type="range" min="0" max="100" value={audio.originalAudioVolume} disabled={!audio.preserveOriginalAudio} onChange={(event) => updateAudio('originalAudioVolume', Number(event.target.value))} /></label>
+        <label className="stacked-setting"><span>Audio normalization</span><select value={audio.normalizationMode} onChange={(event) => updateAudio('normalizationMode', event.target.value as typeof audio.normalizationMode)}><option value="off">Off</option><option value="fast">Fast</option><option value="accurate">Accurate</option></select></label>
+        <ToggleRow label="Normalize Final Mix" checked={audio.normalizeFinalMix} onChange={(value) => updateAudio('normalizeFinalMix', value)} />
         <ToggleRow label="Lower Music During Clip Audio" checked={audio.duckMusicDuringClipAudio} onChange={(value) => updateAudio('duckMusicDuringClipAudio', value)} />
       </div>
     </details>

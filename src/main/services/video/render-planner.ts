@@ -182,6 +182,7 @@ export function buildRenderPlan(
       sourceHeight: source.video.height,
       sourceFrameRate: source.video.frameRate,
       sourceRotation: source.video.rotation,
+      selectedCandidate: null,
       transitionToNext: transitionDuration == null
         ? null
         : { type: settings.transitionPreference, duration: transitionDuration }
@@ -209,7 +210,13 @@ export function buildRenderPlan(
     requestedDuration: settings.targetDuration,
     expectedDuration: allocation.expectedDuration,
     audio: structuredClone(settings.audio),
-    warnings: allocation.warnings
+    warnings: allocation.warnings,
+    selectionMode: settings.selectionMode,
+    selectionSeed: settings.selectionSeed + generation,
+    analysisVersion: null,
+    fitBackground: settings.fitBackground,
+    blurStrength: settings.blurStrength,
+    previewVersion: generation + 1
   }
 }
 

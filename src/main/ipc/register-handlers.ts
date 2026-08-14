@@ -1,5 +1,6 @@
-import { access } from 'node:fs/promises'
-import { basename, extname, isAbsolute, resolve } from 'node:path'
+import { access, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, extname, isAbsolute, join, resolve } from 'node:path'
 import { dialog, ipcMain, shell } from 'electron'
 import { AUDIO_FILE_FILTER } from '@shared/constants/audio'
 import { VIDEO_FILE_FILTER } from '@shared/constants/media'
@@ -44,6 +45,34 @@ function isRenderSettings(value: unknown): value is RenderSettings {
   if (!value || typeof value !== 'object') return false
   const settings = value as Partial<RenderSettings>
   const audio = settings.audio
+  const preferences = settings.smartPreferences
+  const validSoundtrackTracks =
+    Array.isArray(audio?.soundtrackTracks) &&
+    audio.soundtrackTracks.length <= 100 &&
+    audio.soundtrackTracks.every((track) =>
+      Boolean(track) &&
+      typeof track.id === 'string' &&
+      typeof track.filename === 'string' &&
+      typeof track.path === 'string' &&
+      isAbsolute(track.path) &&
+      typeof track.duration === 'number' &&
+      track.duration > 0 &&
+      typeof track.missing === 'boolean' &&
+      typeof track.enabled === 'boolean' &&
+      typeof track.volume === 'number' &&
+      track.volume >= 0 &&
+      track.volume <= 100 &&
+      typeof track.startPosition === 'number' &&
+      track.startPosition >= 0 &&
+      Boolean(track.fadeIn) &&
+      typeof track.fadeIn.enabled === 'boolean' &&
+      typeof track.fadeIn.duration === 'number' &&
+      track.fadeIn.duration >= 0 &&
+      Boolean(track.fadeOut) &&
+      typeof track.fadeOut.enabled === 'boolean' &&
+      typeof track.fadeOut.duration === 'number' &&
+      track.fadeOut.duration >= 0
+    )
   return (
     ['original', '16:9', '9:16', '1:1', '4:5'].includes(settings.aspectRatio ?? '') &&
     ['720p', '1080p'].includes(settings.resolution ?? '') &&
@@ -55,6 +84,16 @@ function isRenderSettings(value: unknown): value is RenderSettings {
     ['crop', 'fit'].includes(settings.fitMode ?? '') &&
     ['draft', 'balanced', 'high'].includes(settings.quality ?? '') &&
     ['fast', 'full'].includes(settings.previewQuality ?? '') &&
+    ['classic', 'smart'].includes(settings.selectionMode ?? '') &&
+    ['fast', 'balanced', 'detailed'].includes(settings.analysisQuality ?? '') &&
+    Boolean(preferences) &&
+    typeof preferences?.preferPeople === 'boolean' &&
+    typeof preferences?.preferMotion === 'boolean' &&
+    typeof preferences?.preferClearFootage === 'boolean' &&
+    typeof preferences?.preferAudibleMoments === 'boolean' &&
+    Number.isInteger(settings.selectionSeed) &&
+    ['black', 'blurred'].includes(settings.fitBackground ?? '') &&
+    ['low', 'medium', 'high'].includes(settings.blurStrength ?? '') &&
     typeof settings.useEveryClip === 'boolean' &&
     (settings.targetDuration == null ||
       (typeof settings.targetDuration === 'number' && settings.targetDuration > 0)) &&
@@ -70,6 +109,13 @@ function isRenderSettings(value: unknown): value is RenderSettings {
     typeof audio?.loopBackgroundMusic === 'boolean' &&
     typeof audio?.musicStartPosition === 'number' && audio.musicStartPosition >= 0 &&
     typeof audio?.duckMusicDuringClipAudio === 'boolean' &&
+    typeof audio?.soundtrackEnabled === 'boolean' &&
+    validSoundtrackTracks &&
+    typeof audio?.soundtrackCrossfade === 'number' &&
+    audio.soundtrackCrossfade >= 0 &&
+    audio.soundtrackCrossfade <= 5 &&
+    ['off', 'fast', 'accurate'].includes(audio?.normalizationMode ?? '') &&
+    typeof audio?.normalizeFinalMix === 'boolean' &&
     Boolean(audio?.fadeIn) && typeof audio?.fadeIn.duration === 'number' && audio.fadeIn.duration >= 0 &&
     Boolean(audio?.fadeOut) && typeof audio?.fadeOut.duration === 'number' && audio.fadeOut.duration >= 0 &&
     (audio?.backgroundTrack == null ||
@@ -114,6 +160,13 @@ function isRenderPlan(value: unknown): value is RenderPlan {
     plan.version === 1 &&
     typeof plan.id === 'string' &&
     typeof plan.projectId === 'string' &&
+    ['classic', 'smart'].includes(plan.selectionMode ?? '') &&
+    Number.isInteger(plan.selectionSeed) &&
+    (plan.analysisVersion == null || typeof plan.analysisVersion === 'string') &&
+    ['black', 'blurred'].includes(plan.fitBackground ?? '') &&
+    ['low', 'medium', 'high'].includes(plan.blurStrength ?? '') &&
+    Number.isInteger(plan.previewVersion) &&
+    (plan.previewVersion ?? 0) > 0 &&
     Array.isArray(plan.segments) &&
     plan.segments.length > 0 &&
     plan.segments.every((segment) =>
@@ -310,5 +363,18 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.showItemInFolder, (_event, value: unknown) => {
     shell.showItemInFolder(validateLocalPath(value, 'File'))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.deletePreviewFiles, async (_event, video: unknown, thumbnail: unknown) => {
+    const root = resolve(join(tmpdir(), 'autocut-studio'))
+    const videoPath = resolve(validateLocalPath(video, 'Preview'))
+    const thumbnailPath = typeof thumbnail === 'string' && thumbnail
+      ? resolve(validateLocalPath(thumbnail, 'Thumbnail'))
+      : null
+    if (!videoPath.startsWith(`${root}/`) || (thumbnailPath && !thumbnailPath.startsWith(`${root}/`))) {
+      throw new Error('Only AutoCut Studio temporary previews can be deleted.')
+    }
+    await rm(videoPath, { force: true })
+    if (thumbnailPath) await rm(thumbnailPath, { force: true })
   })
 }

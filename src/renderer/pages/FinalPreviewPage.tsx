@@ -11,6 +11,7 @@ import {
 import { getPresetDisplayName } from '@shared/utils/project-settings'
 import { BrandMark } from '../components/BrandMark'
 import { RenderDialog } from '../components/RenderDialog'
+import { PreviewHistoryPanel } from '../components/PreviewHistoryPanel'
 import { useVideoRender } from '../hooks/use-video-render'
 import { useAppStore } from '../stores/app-store'
 import { formatDuration, formatFileSize, formatFrameRate } from '../utils/format'
@@ -20,6 +21,8 @@ export function FinalPreviewPage(): React.JSX.Element {
   const exported = useAppStore((state) => state.exportResult)
   const outdated = useAppStore((state) => state.previewOutdated)
   const settings = useAppStore((state) => state.projectSettings)
+  const history = useAppStore((state) => state.previewHistory)
+  const selectedPreviewId = useAppStore((state) => state.selectedPreviewId)
   const backToEdit = useAppStore((state) => state.backToEdit)
   const startProject = useAppStore((state) => state.startProject)
   const isRendering = useAppStore((state) => state.renderStatus === 'rendering')
@@ -28,6 +31,11 @@ export function FinalPreviewPage(): React.JSX.Element {
   if (!preview) {
     return <></>
   }
+  const selectedVersion = history.find((version) => version.id === selectedPreviewId)
+  const previewSettings = selectedVersion?.settingsSnapshot ?? settings
+  const statusLabel = selectedVersion?.approved
+    ? 'Approved Export'
+    : outdated ? 'Settings Changed' : 'Preview / Not Yet Exported'
 
   return (
     <main className="review-page">
@@ -42,7 +50,7 @@ export function FinalPreviewPage(): React.JSX.Element {
         </div>
         <span className={`preview-state ${outdated ? 'preview-state-outdated' : ''}`}>
           {outdated ? <TriangleAlert size={15} /> : <FileVideo2 size={15} />}
-          {outdated ? 'Settings Changed' : 'Preview / Not Yet Exported'}
+          {statusLabel}
         </span>
       </header>
 
@@ -57,11 +65,13 @@ export function FinalPreviewPage(): React.JSX.Element {
         />
       </section>
 
+      <PreviewHistoryPanel />
+
       <section className="review-details" aria-label="Preview details">
         <div className="review-title">
           <div>
             <span>Generated preview</span>
-            <h1>{settings.name}</h1>
+            <h1>{previewSettings.name}</h1>
           </div>
           <div className="review-actions">
             <button className="button button-secondary" type="button" onClick={backToEdit} disabled={isRendering}>
@@ -91,14 +101,17 @@ export function FinalPreviewPage(): React.JSX.Element {
         ))}
 
         <dl className="review-metadata">
-          <div><dt>Preset</dt><dd>{getPresetDisplayName(settings)}</dd></div>
+          <div><dt>Preset</dt><dd>{selectedVersion?.presetName ?? getPresetDisplayName(previewSettings)}</dd></div>
           <div><dt>Resolution</dt><dd>{preview.width} x {preview.height}</dd></div>
           <div><dt>Frame rate</dt><dd>{formatFrameRate(preview.frameRate)}</dd></div>
           <div><dt>Duration</dt><dd>{formatDuration(preview.duration)}</dd></div>
           <div><dt>Clips used</dt><dd>{preview.clipCount}</dd></div>
           <div><dt>Preview size</dt><dd>{formatFileSize(preview.fileSize)}</dd></div>
           <div><dt>Preview quality</dt><dd>{preview.previewQuality === 'full' ? 'Full Quality' : 'Fast'}</dd></div>
-          <div><dt>Background music</dt><dd>{preview.plan.audio.backgroundTrack && !preview.plan.audio.backgroundTrack.missing ? 'Included' : 'No'}</dd></div>
+          <div><dt>Selection</dt><dd>{preview.plan.selectionMode === 'smart' ? 'Smart' : 'Classic'}</dd></div>
+          <div><dt>Soundtrack</dt><dd>{preview.plan.audio.soundtrackTracks.filter((track) => track.enabled && !track.missing).length} tracks</dd></div>
+          <div><dt>Pace</dt><dd>{preview.plan.pace}</dd></div>
+          <div><dt>Target</dt><dd>{preview.plan.requestedDuration ? formatDuration(preview.plan.requestedDuration) : 'Auto'}</dd></div>
         </dl>
 
         <details className="edit-plan-details">
@@ -109,6 +122,15 @@ export function FinalPreviewPage(): React.JSX.Element {
                 <span>{index + 1}</span>
                 <strong title={segment.sourcePath}>{segment.filename}</strong>
                 <small>{segment.start.toFixed(1)}s to {segment.end.toFixed(1)}s</small>
+                {segment.selectedCandidate && (
+                  <div className="selection-reasons">
+                    {segment.selectedCandidate.reasons.map((reason) => <span key={reason}>{reason}</span>)}
+                    <details>
+                      <summary>Scores</summary>
+                      <code>{JSON.stringify(segment.selectedCandidate.scores, null, 2)}</code>
+                    </details>
+                  </div>
+                )}
               </div>
             ))}
           </div>

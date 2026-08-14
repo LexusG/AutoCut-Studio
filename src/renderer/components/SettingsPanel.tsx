@@ -83,7 +83,7 @@ export function SettingsPanel(): React.JSX.Element {
     <aside className="settings-panel" aria-label="Project configuration">
       <div className="settings-heading">
         <div><SlidersHorizontal size={17} /><h2>Project Settings</h2></div>
-        <span>PHASE 3</span>
+        <span>PHASE 4</span>
       </div>
 
       <div className="settings-scroll">
@@ -150,12 +150,56 @@ export function SettingsPanel(): React.JSX.Element {
                 <option value="fit">Fit</option>
               </select>
             </label>
+            {output.fitMode === 'fit' && (
+              <>
+                <label className="stacked-setting">
+                  <span>Fit background</span>
+                  <select value={output.fitBackground} onChange={(event) => updateOutput({ fitBackground: event.target.value as typeof output.fitBackground })}>
+                    <option value="black">Black</option>
+                    <option value="blurred">Blurred</option>
+                  </select>
+                </label>
+                {output.fitBackground === 'blurred' && (
+                  <label className="stacked-setting">
+                    <span>Blur strength</span>
+                    <select value={output.blurStrength} onChange={(event) => updateOutput({ blurStrength: event.target.value as typeof output.blurStrength })}>
+                      <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+                    </select>
+                  </label>
+                )}
+              </>
+            )}
           </div>
         </details>
 
         <details className="settings-details" open>
           <summary><Scissors size={14} /> Editing Settings <ChevronDown size={13} /></summary>
           <div className="settings-details-body">
+            <label className="stacked-setting">
+              <span>Selection mode</span>
+              <select value={editing.selectionMode} onChange={(event) => updateEditing('selectionMode', event.target.value as typeof editing.selectionMode)}>
+                <option value="classic">Classic</option>
+                <option value="smart">Smart</option>
+              </select>
+              {editing.selectionMode === 'smart' && <small>Analyzes clips locally for stronger visual, motion, and audio moments.</small>}
+            </label>
+            {editing.selectionMode === 'smart' && (
+              <>
+                <label className="stacked-setting">
+                  <span>Analysis quality</span>
+                  <select value={editing.analysisQuality} onChange={(event) => updateEditing('analysisQuality', event.target.value as typeof editing.analysisQuality)}>
+                    <option value="fast">Fast</option><option value="balanced">Balanced</option><option value="detailed">Detailed</option>
+                  </select>
+                </label>
+                <details className="smart-preferences">
+                  <summary>Advanced Smart Settings</summary>
+                  <ToggleSetting label="Prefer People" checked={editing.smartPreferences.preferPeople} onChange={(preferPeople) => updateEditing('smartPreferences', { ...editing.smartPreferences, preferPeople })} />
+                  <ToggleSetting label="Prefer Motion" checked={editing.smartPreferences.preferMotion} onChange={(preferMotion) => updateEditing('smartPreferences', { ...editing.smartPreferences, preferMotion })} />
+                  <ToggleSetting label="Prefer Clear Footage" checked={editing.smartPreferences.preferClearFootage} onChange={(preferClearFootage) => updateEditing('smartPreferences', { ...editing.smartPreferences, preferClearFootage })} />
+                  <ToggleSetting label="Prefer Audible Moments" checked={editing.smartPreferences.preferAudibleMoments} onChange={(preferAudibleMoments) => updateEditing('smartPreferences', { ...editing.smartPreferences, preferAudibleMoments })} />
+                </details>
+              </>
+            )}
             <label className="stacked-setting">
               <span>Editing pace</span>
               <select value={editing.pace} onChange={(event) => updateEditing('pace', event.target.value as 'slow' | 'normal' | 'fast')}>

@@ -7,6 +7,7 @@ export interface PreviewWorkspace {
   root: string
   normalized: string
   previewPath: string
+  thumbnailPath: string
   planPath: string
   logPath: string
 }
@@ -27,6 +28,7 @@ export async function createPreviewWorkspace(
     root,
     normalized,
     previewPath: join(root, 'preview.mp4'),
+    thumbnailPath: join(root, 'thumbnail.jpg'),
     planPath: join(root, 'render-plan.json'),
     logPath: join(root, 'render.log')
   }
@@ -41,6 +43,7 @@ export async function cleanPreviewIntermediates(workspace: PreviewWorkspace): Pr
 
 export async function cleanFailedPreview(workspace: PreviewWorkspace): Promise<void> {
   await rm(workspace.previewPath, { force: true })
+  await rm(workspace.thumbnailPath, { force: true })
   await cleanPreviewIntermediates(workspace)
 }
 

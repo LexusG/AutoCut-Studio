@@ -28,6 +28,8 @@ const api: AutoCutApi = {
   },
   openFile: (path) => ipcRenderer.invoke(IPC_CHANNELS.openFile, path),
   showItemInFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.showItemInFolder, path),
+  deletePreviewFiles: (videoPath, thumbnailPath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.deletePreviewFiles, videoPath, thumbnailPath),
   getPathForFile: (file) => webUtils.getPathForFile(file)
 }
 

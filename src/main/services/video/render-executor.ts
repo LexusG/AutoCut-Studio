@@ -10,6 +10,8 @@ import type {
 } from '@shared/types'
 import { ProcessExecutionError, runProcess } from '../ffmpeg/process'
 import { musicMixFilters, sourceAudioFilter } from './audio-filters'
+import { prepareSoundtrack } from './soundtrack-processor'
+import { fastLoudnessFilter, measureLoudness, type LoudnessMeasurements } from './loudness-normalizer'
 
 interface QualityOptions {
   preset: string
@@ -73,12 +75,23 @@ function createProgressParser(duration: number, onFraction: (fraction: number) =
   }
 }
 
-function videoFilter(plan: RenderPlan, dimensions: RenderDimensions): string {
+export function videoFilterGraph(plan: RenderPlan, dimensions: RenderDimensions): string {
   const { width, height } = dimensions
+  const finish = `fps=${plan.output.frameRate},setsar=1,setpts=PTS-STARTPTS,format=yuv420p`
+  if (plan.output.fitMode === 'fit' && plan.fitBackground === 'blurred') {
+    const requestedRadius = { low: 12, medium: 24, high: 40 }[plan.blurStrength]
+    const radius = Math.max(1, Math.min(requestedRadius, Math.floor((Math.min(width, height) - 1) / 2)))
+    return [
+      '[0:v:0]split=2[backgroundsource][foregroundsource]',
+      `[backgroundsource]scale=${width}:${height}:force_original_aspect_ratio=increase:flags=bilinear,crop=${width}:${height},boxblur=luma_radius=${radius}:luma_power=1,eq=brightness=-0.12[background]`,
+      `[foregroundsource]scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos[foreground]`,
+      `[background][foreground]overlay=(W-w)/2:(H-h)/2,${finish}[video]`
+    ].join(';')
+  }
   const scale = plan.output.fitMode === 'crop'
     ? `scale=${width}:${height}:force_original_aspect_ratio=increase:flags=lanczos,crop=${width}:${height}`
     : `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=lanczos,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`
-  return `${scale},fps=${plan.output.frameRate},setsar=1,setpts=PTS-STARTPTS,format=yuv420p`
+  return `[0:v:0]${scale},${finish}[video]`
 }
 
 async function logCommand(logPath: string, stage: string, command: string, args: string[]): Promise<void> {
@@ -112,13 +125,37 @@ async function normalizeSegment(
     )
   }
   const audioLabel = useSourceAudio ? '0:a:0' : '1:a:0'
+  let measurements: LoudnessMeasurements | null = null
+  if (useSourceAudio && options.plan.audio.normalizationMode === 'accurate') {
+    try {
+      measurements = await measureLoudness(
+        options.ffmpegPath,
+        segment.sourcePath,
+        segment.start,
+        segment.duration,
+        options.signal,
+        options.logPath
+      )
+    } catch (error) {
+      if (options.signal.aborted) throw error
+      await appendFile(options.logPath, `${JSON.stringify({
+        timestamp: new Date().toISOString(),
+        stage: 'accurate-normalization-fallback',
+        filename: segment.filename,
+        warning: error instanceof Error ? error.message : String(error)
+      })}\n`, 'utf8')
+    }
+  }
   const filters = [
-    `[0:v:0]${videoFilter(options.plan, dimensions)}[video]`,
+    videoFilterGraph(options.plan, dimensions),
     sourceAudioFilter(audioLabel, segment.duration, {
       ...options.plan.audio,
       normalizeClipAudio: useSourceAudio && options.plan.audio.normalizeClipAudio,
+      normalizationMode: useSourceAudio && options.plan.audio.normalizeClipAudio
+        ? options.plan.audio.normalizationMode
+        : 'off',
       originalAudioVolume: useSourceAudio ? options.plan.audio.originalAudioVolume : 0
-    })
+    }, measurements)
   ].join(';')
   const argsTail = [
     '-filter_complex', filters,
@@ -197,15 +234,19 @@ function transitionFilters(plan: RenderPlan): { filters: string[]; video: string
 function compositionArgs(
   options: ExecuteRenderOptions,
   normalizedPaths: string[],
-  ducking: boolean
+  ducking: boolean,
+  soundtrackPath: string | null
 ): string[] {
   const args = ['-hide_banner', '-loglevel', 'error']
   for (const path of normalizedPaths) args.push('-i', path)
-  const background = options.plan.audio.backgroundTrack
+  const background = soundtrackPath
+    ? { path: soundtrackPath, duration: options.plan.expectedDuration, missing: false }
+    : options.plan.audio.backgroundTrack
   if (background && !background.missing) {
     if (options.plan.audio.loopBackgroundMusic) args.push('-stream_loop', '-1')
     const maximumStart = Math.max(0, background.duration - 0.05)
-    args.push('-ss', Math.min(maximumStart, options.plan.audio.musicStartPosition).toFixed(3), '-i', background.path)
+    const start = soundtrackPath ? 0 : Math.min(maximumStart, options.plan.audio.musicStartPosition)
+    args.push('-ss', start.toFixed(3), '-i', background.path)
   }
 
   const transition = transitionFilters(options.plan)
@@ -219,7 +260,7 @@ function compositionArgs(
       normalizedPaths.length,
       transition.audio,
       options.plan.expectedDuration,
-      options.plan.audio,
+      soundtrackPath ? { ...options.plan.audio, musicVolume: 100 } : options.plan.audio,
       ducking
     )
     filters.push(...music.filters)
@@ -229,6 +270,10 @@ function compositionArgs(
       `[${transition.audio}]apad=pad_dur=${options.plan.expectedDuration.toFixed(3)},atrim=0:${options.plan.expectedDuration.toFixed(3)}[finalaudio]`
     )
     audioLabel = 'finalaudio'
+  }
+  if (options.plan.audio.normalizeFinalMix) {
+    filters.push(`[${audioLabel}]${fastLoudnessFilter()}[programaudio]`)
+    audioLabel = 'programaudio'
   }
 
   const quality = options.kind === 'preview' && options.previewQuality === 'fast'
@@ -267,11 +312,20 @@ export async function executeRender(options: ExecuteRenderOptions): Promise<{ du
     await normalizeSegment(options, segment, index, dimensions, outputPath)
   }
 
-  const hasMusic = Boolean(options.plan.audio.backgroundTrack && !options.plan.audio.backgroundTrack.missing)
+  options.onStage('Processing music')
+  const soundtrackPath = await prepareSoundtrack(
+    options.ffmpegPath,
+    options.plan.audio,
+    options.normalizedDirectory,
+    options.signal,
+    options.logPath
+  )
+
+  const hasMusic = Boolean(soundtrackPath || (options.plan.audio.backgroundTrack && !options.plan.audio.backgroundTrack.missing))
   options.onStage(options.plan.segments.length > 1 ? 'Creating transitions' : hasMusic ? 'Processing music' : options.kind === 'preview' ? 'Encoding preview' : 'Encoding export')
   const shouldDuck = hasMusic && options.plan.audio.duckMusicDuringClipAudio && options.plan.audio.preserveOriginalAudio
   const runComposition = async (ducking: boolean): Promise<void> => {
-    const args = compositionArgs(options, normalizedPaths, ducking)
+    const args = compositionArgs(options, normalizedPaths, ducking, soundtrackPath)
     await logCommand(options.logPath, ducking ? 'compose-with-ducking' : 'compose', options.ffmpegPath, args)
     await runProcess(options.ffmpegPath, args, {
       signal: options.signal,

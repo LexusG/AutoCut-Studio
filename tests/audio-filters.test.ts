@@ -25,4 +25,14 @@ describe('Phase 3 audio filters', () => {
     expect(result.filters.join(';')).toContain('asplit=2[sourcebed][sidechain]')
     expect(result.filters.join(';')).toContain('sidechaincompress=')
   })
+
+  it('does not normalize synthesized silence', () => {
+    const filter = sourceAudioFilter('1:a:0', 5, {
+      ...DEFAULT_RENDER_SETTINGS.audio,
+      normalizationMode: 'off',
+      originalAudioVolume: 0
+    })
+    expect(filter).not.toContain('loudnorm=')
+    expect(filter).toContain('volume=0.000')
+  })
 })

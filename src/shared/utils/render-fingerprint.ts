@@ -26,5 +26,5 @@ export function createRenderFingerprint(settings: ProjectSettings, sourcePaths: 
       : settings.audio,
     previewQuality: settings.previewQuality
   }
-  return `phase3-${fnv1a(JSON.stringify(renderState))}`
+  return `phase4-${fnv1a(JSON.stringify(renderState))}`
 }

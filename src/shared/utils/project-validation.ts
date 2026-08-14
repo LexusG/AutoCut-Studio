@@ -24,6 +24,15 @@ export function validateProjectSettings(
   if (!['auto', 24, 30, 60].includes(settings.output.frameRate)) {
     add('frame-rate', 'error', 'Choose Auto, 24, 30, or 60 FPS.')
   }
+  if (!['crop', 'fit'].includes(settings.output.fitMode)) {
+    add('fit-mode', 'error', 'Choose Crop or Fit for the output framing.')
+  }
+  if (!['black', 'blurred'].includes(settings.output.fitBackground)) {
+    add('fit-background', 'error', 'Choose Black or Blurred for the Fit background.')
+  }
+  if (!['low', 'medium', 'high'].includes(settings.output.blurStrength)) {
+    add('blur-strength', 'error', 'Choose a valid blurred background strength.')
+  }
   if (settings.presetId !== 'custom' && !getPreset(settings.presetId)) {
     add('preset', 'error', 'The selected platform preset is unavailable.')
   }
@@ -35,6 +44,12 @@ export function validateProjectSettings(
   }
   if (settings.editing.transitionDuration < 0 || settings.editing.transitionDuration > 2) {
     add('transition-duration', 'error', 'Transition duration must be between 0 and 2 seconds.')
+  }
+  if (!['classic', 'smart'].includes(settings.editing.selectionMode)) {
+    add('selection-mode', 'error', 'Choose Classic or Smart selection.')
+  }
+  if (!['fast', 'balanced', 'detailed'].includes(settings.editing.analysisQuality)) {
+    add('analysis-quality', 'error', 'Choose a valid Smart analysis quality.')
   }
   if (settings.editing.useEveryClip && targetSeconds && clipCount > 0) {
     const approximateMinimum = clipCount * minimumSecondsPerClip[settings.editing.pace]
@@ -61,6 +76,27 @@ export function validateProjectSettings(
   if (audio.fadeIn.duration < 0 || audio.fadeOut.duration < 0) {
     add('music-fade', 'error', 'Music fade durations cannot be negative.')
   }
+  if (audio.soundtrack.masterVolume < 0 || audio.soundtrack.masterVolume > 100) {
+    add('soundtrack-volume', 'error', 'Master music volume must be between 0% and 100%.')
+  }
+  if (audio.soundtrack.crossfadeDuration < 0 || audio.soundtrack.crossfadeDuration > 5) {
+    add('soundtrack-crossfade', 'error', 'Music crossfade must be between 0 and 5 seconds.')
+  }
+  if (!['off', 'fast', 'accurate'].includes(audio.normalizationMode)) {
+    add('normalization-mode', 'error', 'Choose Off, Fast, or Accurate normalization.')
+  }
+  audio.soundtrack.tracks.forEach((track, index) => {
+    if (track.missing) add(`soundtrack-missing-${index}`, 'warning', `${track.filename} is missing.`)
+    if (track.volume < 0 || track.volume > 100) {
+      add(`soundtrack-volume-${index}`, 'error', `${track.filename} volume must be between 0% and 100%.`)
+    }
+    if (track.startPosition < 0 || track.startPosition >= track.duration) {
+      add(`soundtrack-start-${index}`, 'error', `${track.filename} start offset must be within the track.`)
+    }
+    if (track.fadeIn.duration < 0 || track.fadeOut.duration < 0) {
+      add(`soundtrack-fade-${index}`, 'error', `${track.filename} fade durations cannot be negative.`)
+    }
+  })
   if (!settings.outputFilename.trim() || !settings.outputFilename.toLowerCase().endsWith('.mp4')) {
     add('output-filename', 'error', 'Output filename must end with .mp4.')
   }

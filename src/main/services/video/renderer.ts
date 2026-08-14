@@ -1,4 +1,4 @@
-import { appendFile, copyFile, mkdtemp, rename, rm } from 'node:fs/promises'
+import { appendFile, copyFile, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import type {
@@ -6,24 +6,25 @@ import type {
   PreviewRenderOutcome,
   PreviewRenderRequest,
   RenderArtifact,
+  RenderPlan,
   RenderProgress,
   RenderStage
 } from '@shared/types'
 import { detectFfmpeg } from '../ffmpeg/binaries'
-import { ProcessExecutionError } from '../ffmpeg/process'
+import { ProcessExecutionError, runProcess } from '../ffmpeg/process'
 import { allowMediaPath, createMediaUrl } from '../filesystem/media-access'
 import { verifyRenderedOutput } from './ffprobe-verifier'
 import {
   cleanFailedPreview,
   cleanPreviewIntermediates,
   createPreviewWorkspace,
-  prunePreviewHistory,
   type PreviewWorkspace
 } from './preview-manager'
 import { buildRenderPlan } from './render-planner'
 import { executeRender, renderDimensions } from './render-executor'
 import { InfeasibleDurationError } from './segment-allocator'
 import { probeMedia } from './metadata'
+import { applySmartSelection } from './smart/smart-selection'
 
 const activeRenders = new Map<string, AbortController>()
 
@@ -102,7 +103,8 @@ export async function generatePreview(
     }
 
     report('Planning edit', 12)
-    let plan
+    let plan: RenderPlan
+    let thumbnailReady = false
     try {
       plan = buildRenderPlan(
         request.projectId,
@@ -129,6 +131,19 @@ export async function generatePreview(
     }
 
     workspace = await createPreviewWorkspace(request.projectId, request.renderId, plan)
+    if (request.settings.selectionMode === 'smart') {
+      plan = await applySmartSelection(
+        status.ffmpeg.path,
+        plan,
+        request.settings,
+        signal,
+        (index, filename, stage) => {
+          report(stage, 12 + ((index + 0.5) / plan.segments.length) * 8, index + 1, filename)
+        },
+        workspace.logPath
+      )
+      await writeFile(workspace.planPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
+    }
     const dimensions = renderDimensions(plan, request.settings.previewQuality)
     let currentStage: RenderStage = 'Preparing clips'
     await executeRender({
@@ -161,9 +176,28 @@ export async function generatePreview(
       frameRate: plan.output.frameRate,
       duration: plan.expectedDuration
     })
+    try {
+      await runProcess(status.ffmpeg.path, [
+        '-hide_banner', '-loglevel', 'error',
+        '-ss', Math.min(verified.duration / 2, Math.max(0, verified.duration - 0.1)).toFixed(3),
+        '-i', workspace.previewPath,
+        '-frames:v', '1',
+        '-vf', 'scale=320:-2',
+        '-q:v', '3',
+        '-y', workspace.thumbnailPath
+      ], { signal })
+      allowMediaPath(workspace.thumbnailPath)
+      thumbnailReady = true
+    } catch (error) {
+      if (signal.aborted) throw error
+      await appendFile(workspace.logPath, `${JSON.stringify({
+        timestamp: new Date().toISOString(),
+        stage: 'thumbnail-warning',
+        warning: error instanceof Error ? error.message : String(error)
+      })}\n`, 'utf8')
+    }
     allowMediaPath(workspace.previewPath)
     await cleanPreviewIntermediates(workspace)
-    await prunePreviewHistory(request.projectId)
     report('Complete', 100)
     return {
       success: true,
@@ -176,7 +210,9 @@ export async function generatePreview(
         plan,
         previewQuality: request.settings.previewQuality,
         reusedPreview: false,
-        logPath: workspace.logPath
+        logPath: workspace.logPath,
+        thumbnailPath: thumbnailReady ? workspace.thumbnailPath : '',
+        thumbnailUrl: thumbnailReady ? createMediaUrl(workspace.thumbnailPath) : ''
       }
     }
   } catch (error) {
@@ -271,7 +307,9 @@ export async function exportApprovedPreview(
       plan,
       previewQuality: request.previewQuality,
       reusedPreview,
-      logPath
+      logPath,
+      thumbnailPath: request.plan.previewVersion ? request.previewPath.replace(/preview\.mp4$/, 'thumbnail.jpg') : '',
+      thumbnailUrl: ''
     }
   } catch (error) {
     await rm(partialPath, { force: true })

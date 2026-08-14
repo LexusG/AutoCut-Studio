@@ -1,82 +1,72 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { _electron as electron, expect, test } from '@playwright/test'
+import { _electron as electron, expect, test, type Page } from '@playwright/test'
 
 const execFileAsync = promisify(execFile)
 
-test('generates, reviews, regenerates, approves, and exports a real multi-clip edit', async () => {
-  const fixtureDirectory = await mkdtemp(join(tmpdir(), 'autocut-smoke-'))
-  const landscapePath = join(fixtureDirectory, 'landscape-with-audio.mp4')
-  const portraitPath = join(fixtureDirectory, 'portrait-silent.mp4')
-  const audioPath = join(fixtureDirectory, 'background-music.wav')
-  const outputPath = join(fixtureDirectory, 'autocut-output.mp4')
-  const fullPreviewOutputPath = join(fixtureDirectory, 'autocut-full-preview-output.mp4')
-  const projectPath = join(fixtureDirectory, 'phase-2-smoke.autocut.json')
+async function createVideo(
+  path: string,
+  source: string,
+  withAudio: boolean,
+  frequency = 440
+): Promise<void> {
+  const args = ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', source]
+  if (withAudio) args.push('-f', 'lavfi', '-i', `sine=frequency=${frequency}:sample_rate=48000`)
+  args.push(
+    '-t', '6', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+    ...(withAudio ? ['-c:a', 'aac', '-shortest'] : ['-an']),
+    '-y', path
+  )
+  await execFileAsync('ffmpeg', args)
+}
 
+async function createMusic(path: string, frequency: number): Promise<void> {
   await execFileAsync('ffmpeg', [
-    '-hide_banner',
-    '-loglevel',
-    'error',
-    '-f',
-    'lavfi',
-    '-i',
-    'testsrc=size=640x360:rate=30',
-    '-f',
-    'lavfi',
-    '-i',
-    'sine=frequency=440:sample_rate=48000',
-    '-t',
-    '4',
-    '-c:v',
-    'libx264',
-    '-pix_fmt',
-    'yuv420p',
-    '-c:a',
-    'aac',
-    '-shortest',
-    '-y',
-    landscapePath
+    '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
+    '-i', `sine=frequency=${frequency}:sample_rate=48000`,
+    '-t', '4', '-c:a', 'pcm_s16le', '-y', path
   ])
-  await execFileAsync('ffmpeg', [
-    '-hide_banner',
-    '-loglevel',
-    'error',
-    '-f',
-    'lavfi',
-    '-i',
-    'testsrc2=size=360x640:rate=24',
-    '-t',
-    '3.5',
-    '-c:v',
-    'libx264',
-    '-pix_fmt',
-    'yuv420p',
-    '-an',
-    '-y',
-    portraitPath
-  ])
-  await execFileAsync('ffmpeg', [
-    '-hide_banner',
-    '-loglevel',
-    'error',
-    '-f',
-    'lavfi',
-    '-i',
-    'sine=frequency=523:sample_rate=48000',
-    '-t',
-    '4',
-    '-c:a',
-    'pcm_s16le',
-    '-y',
-    audioPath
+}
+
+async function expectPreviewReady(page: Page): Promise<void> {
+  const result = page.getByRole('heading', { name: /^(Preview ready|Preview generation failed)$/ })
+  await expect(result).toBeVisible({ timeout: 120_000 })
+  if ((await result.textContent()) === 'Preview generation failed') {
+    await page.getByText('Show Technical Details').click()
+    throw new Error(await page.locator('.render-error-details pre').textContent() ?? 'Preview generation failed')
+  }
+}
+
+test('completes the realistic Phase 4 Smart editing workflow', async () => {
+  test.setTimeout(240_000)
+  const fixtureDirectory = await mkdtemp(join(tmpdir(), 'autocut-phase4-smoke-'))
+  const clips = [
+    join(fixtureDirectory, 'landscape-audio.mp4'),
+    join(fixtureDirectory, 'portrait-silent.mp4'),
+    join(fixtureDirectory, 'square-audio.mp4'),
+    join(fixtureDirectory, 'dark-landscape.mp4'),
+    join(fixtureDirectory, 'portrait-pattern.mp4')
+  ]
+  const musicOne = join(fixtureDirectory, 'music-one.wav')
+  const musicTwo = join(fixtureDirectory, 'music-two.wav')
+  const outputPath = join(fixtureDirectory, 'phase4-output.mp4')
+  const projectPath = join(fixtureDirectory, 'phase4-smoke.autocut.json')
+
+  await Promise.all([
+    createVideo(clips[0], 'testsrc=size=480x270:rate=30', true, 440),
+    createVideo(clips[1], 'testsrc2=size=270x480:rate=24', false),
+    createVideo(clips[2], 'smptebars=size=360x360:rate=30', true, 660),
+    createVideo(clips[3], 'color=c=0x111318:size=480x270:rate=30', false),
+    createVideo(clips[4], 'rgbtestsrc=size=270x480:rate=24', false),
+    createMusic(musicOne, 523),
+    createMusic(musicTwo, 784)
   ])
 
   const launchEnvironment = { ...process.env }
   delete launchEnvironment.ELECTRON_RUN_AS_NODE
-
   const electronApp = await electron.launch({
     args: ['.', `--user-data-dir=${join(fixtureDirectory, 'user-data')}`],
     env: { ...launchEnvironment, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' }
@@ -86,212 +76,156 @@ test('generates, reviews, regenerates, approves, and exports a real multi-clip e
     const page = await electronApp.firstWindow()
     await expect(page.getByRole('heading', { name: 'AutoCut Studio' })).toBeVisible()
     await page.getByRole('button', { name: 'New Project' }).click()
-    await expect(page.getByRole('heading', { name: 'Media' })).toBeVisible()
-    await page.getByLabel('Project name').fill('Phase 3 Smoke')
+    await page.getByLabel('Project name').fill('Phase 4 Smart Smoke')
 
     await electronApp.evaluate(({ dialog }, paths) => {
-      dialog.showOpenDialog = async () => ({
-        canceled: false,
-        filePaths: paths,
-        bookmarks: []
-      })
-    }, [landscapePath, portraitPath])
-
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: paths, bookmarks: [] })
+    }, clips)
     await page.getByRole('button', { name: 'Browse files' }).click()
-    const clipCards = page.locator('.clip-card')
-    await expect(clipCards).toHaveCount(2)
-    await expect(clipCards.first()).toContainText('landscape-with-audio.mp4')
-    await expect(clipCards.first()).toContainText('640x360')
-    await expect(clipCards.nth(1)).toContainText('portrait-silent.mp4')
-    await expect(clipCards.nth(1)).toContainText('360x640')
-    await expect(clipCards.first().locator('img')).toHaveAttribute('src', /^autocut-media:/)
-
-    const preview = page.locator('video')
-    await expect(preview).toHaveAttribute('src', /^autocut-media:/)
-    await expect(page.locator('.preview-inspector')).toContainText('Available')
-
-    const duration = await preview.evaluate(async (video: HTMLVideoElement) => {
-      if (video.readyState < HTMLMediaElement.HAVE_METADATA) {
-        await new Promise<void>((resolve, reject) => {
-          video.addEventListener('loadedmetadata', () => resolve(), { once: true })
-          video.addEventListener('error', () => reject(new Error('Preview failed to load')), {
-            once: true
-          })
-        })
-      }
-      return video.duration
-    })
-    expect(duration).toBeGreaterThan(1.5)
+    await expect(page.locator('.clip-card')).toHaveCount(5)
+    await expect(page.locator('.clip-card').nth(1)).toContainText('270x480')
+    await expect(page.locator('.clip-card').nth(2)).toContainText('360x360')
 
     await page.getByRole('tab', { name: 'Instagram' }).click()
     await expect(page.locator('.preset-summary')).toContainText('Instagram Reel')
-    await expect(page.locator('.preset-summary')).toContainText('1080 × 1920')
-    await expect(page.locator('.preview-canvas')).toHaveAttribute('data-aspect-ratio', '9:16')
-    await expect.poll(() => page.locator('.preview-canvas').evaluate((element) => {
-      const box = element.getBoundingClientRect()
-      return box.width / box.height
-    })).toBeCloseTo(9 / 16, 1)
-
-    await page.getByRole('tab', { name: 'YouTube' }).click()
-    await expect(page.locator('.preset-summary')).toContainText('YouTube Standard')
-    await expect(page.locator('.preview-canvas')).toHaveAttribute('data-aspect-ratio', '16:9')
-
-    await page.getByRole('tab', { name: 'Instagram' }).click()
-    await page.getByRole('option', { name: /Feed Square/ }).click()
-    await expect(page.locator('.preview-canvas')).toHaveAttribute('data-aspect-ratio', '1:1')
-    await page.getByLabel('Frame rate').selectOption('60')
-    await expect(page.locator('.preset-section')).toContainText('Modified')
+    await page.getByLabel('Output width').fill('360')
+    await page.getByLabel('Output height').fill('640')
+    await page.getByLabel('Fit mode').selectOption('fit')
+    await expect(page.getByLabel('Fit background')).toHaveValue('blurred')
+    await page.getByLabel('Blur strength').selectOption('medium')
+    await page.getByLabel('Selection mode').selectOption('smart')
+    await page.getByLabel('Analysis quality').selectOption('fast')
     await page.getByLabel('Editing pace').selectOption('fast')
     await expect(page.getByLabel('Use Every Clip')).toBeChecked()
     await page.getByLabel('Target duration').selectOption('custom')
-    await page.getByLabel('Custom target duration').fill('47')
-    await page.getByLabel('Fit mode').selectOption('fit')
-    await page.getByLabel('Output quality').selectOption('high')
+    await page.getByLabel('Custom target duration').fill('10')
+    await page.getByLabel('Transition preference').selectOption('crossfade')
+    await page.getByLabel('Transition duration').selectOption('0.25')
+    await page.getByLabel('Output quality').selectOption('draft')
 
-    await electronApp.evaluate(({ dialog }, selectedPath) => {
-      dialog.showOpenDialog = async () => ({
-        canceled: false,
-        filePaths: [selectedPath],
-        bookmarks: []
-      })
-    }, audioPath)
-    await page.getByRole('button', { name: 'Browse audio' }).click()
-    await expect(page.locator('.audio-card')).toContainText('background-music.wav')
-    await expect(page.locator('.audio-card')).toContainText('PCM_S16LE')
-    const audioPreview = page.locator('.audio-card audio')
-    const audioDuration = await audioPreview.evaluate(async (audio: HTMLAudioElement) => {
-      if (audio.readyState < HTMLMediaElement.HAVE_METADATA) {
-        await new Promise<void>((resolve, reject) => {
-          audio.addEventListener('loadedmetadata', () => resolve(), { once: true })
-          audio.addEventListener('error', () => reject(new Error('Audio preview failed to load')), { once: true })
-        })
-      }
-      return audio.duration
-    })
-    expect(audioDuration).toBeGreaterThan(3.9)
-    await page.getByRole('slider').first().fill('35')
+    for (const musicPath of [musicOne, musicTwo]) {
+      await electronApp.evaluate(({ dialog }, selectedPath) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selectedPath], bookmarks: [] })
+      }, musicPath)
+      await page.getByRole('button', { name: 'Browse audio' }).click()
+    }
+    const soundtrackTracks = page.locator('.soundtrack-track')
+    await expect(soundtrackTracks).toHaveCount(2)
+    await expect(soundtrackTracks.nth(0)).toContainText('music-one.wav')
+    await expect(soundtrackTracks.nth(1)).toContainText('music-two.wav')
+    await soundtrackTracks.nth(0).getByRole('slider').fill('60')
+    await soundtrackTracks.nth(1).getByRole('slider').fill('45')
+    await soundtrackTracks.nth(1).getByRole('spinbutton').fill('0.5')
+    await page.getByLabel('Audio normalization').selectOption('accurate')
+    await page.getByLabel('Normalize Final Mix').check()
+    await expect(page.getByLabel('Loop Soundtrack')).toBeChecked()
+    await expect(page.getByLabel('Lower Music During Clip Audio')).toBeChecked()
 
     await electronApp.evaluate(({ dialog }, selectedPath) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: selectedPath })
     }, projectPath)
     await page.getByRole('button', { name: 'Save Project' }).click()
     await expect(page.locator('.project-feedback')).toContainText('Project saved')
-    const persistedProject = JSON.parse(await (await import('node:fs/promises')).readFile(projectPath, 'utf8')) as {
+    const savedBeforeRender = JSON.parse(await readFile(projectPath, 'utf8')) as {
+      version: number
       settings: {
-        presetId: string
-        presetModified: boolean
-        output: { width: number; height: number; frameRate: number; fitMode: string; quality: string }
-        editing: { pace: string; useEveryClip: boolean; targetDuration: { mode: string; seconds: number } }
-        audio: { backgroundTrack: { path: string }; musicVolume: number }
+        output: { fitBackground: string; width: number; height: number }
+        editing: { selectionMode: string; analysisQuality: string }
+        audio: { normalizationMode: string; soundtrack: { tracks: Array<{ path: string; volume: number }> } }
       }
     }
-    expect(persistedProject.settings).toMatchObject({
-      presetId: 'instagram-feed-square',
-      presetModified: true,
-      output: { width: 1080, height: 1080, frameRate: 60, fitMode: 'fit', quality: 'high' },
-      editing: { pace: 'fast', useEveryClip: true, targetDuration: { mode: 'custom', seconds: 47 } },
-      audio: { backgroundTrack: { path: audioPath }, musicVolume: 35 }
+    expect(savedBeforeRender).toMatchObject({
+      version: 3,
+      settings: {
+        output: { fitBackground: 'blurred', width: 360, height: 640 },
+        editing: { selectionMode: 'smart', analysisQuality: 'fast' },
+        audio: { normalizationMode: 'accurate' }
+      }
     })
+    expect(savedBeforeRender.settings.audio.soundtrack.tracks.map((track) => track.path)).toEqual([musicOne, musicTwo])
+    expect(savedBeforeRender.settings.audio.soundtrack.tracks.map((track) => track.volume)).toEqual([60, 45])
 
-    await page.getByRole('button', { name: 'Back to Home' }).click()
-    await page.locator('.recent-project-open').filter({ hasText: 'Phase 3 Smoke' }).first().click()
-    await expect(page.getByRole('heading', { name: 'Media' })).toBeVisible()
-    await expect(page.locator('.clip-card')).toHaveCount(2)
-    await expect(page.locator('.preset-section')).toContainText('Instagram Feed Square — Modified')
-    await expect(page.getByLabel('Editing pace')).toHaveValue('fast')
-    await expect(page.getByLabel('Custom target duration')).toHaveValue('47')
-    await expect(page.locator('.audio-card')).toContainText('background-music.wav')
-    await expect(page.getByRole('slider').first()).toHaveValue('35')
-
-    await electronApp.evaluate(({ dialog }, selectedPath) => {
-      dialog.showSaveDialog = async () => ({ canceled: false, filePath: selectedPath })
-    }, outputPath)
-    await page.getByLabel('Custom target duration').fill('1')
     await page.getByRole('button', { name: 'Generate Preview' }).click()
-    await expect(page.getByRole('heading', { name: 'Target duration is too short' })).toBeVisible()
-    await page.getByRole('button', { name: 'Use 3 Seconds' }).click()
-    await expect(page.getByLabel('Custom target duration')).toHaveValue('3')
-    await page.locator('label.stacked-setting').filter({ hasText: 'Target duration' }).locator('select').selectOption('auto')
-    await page.getByLabel('Preview quality').selectOption('fast')
-    await page.getByRole('button', { name: 'Generate Preview' }).click()
-    await expect(page.getByRole('heading', { name: 'Preview ready' })).toBeVisible({ timeout: 45_000 })
+    await expectPreviewReady(page)
     await page.getByRole('button', { name: 'Review Preview' }).click()
-    await expect(page.getByRole('heading', { name: 'Phase 3 Smoke' })).toBeVisible()
-    await expect(page.getByText('Preview / Not Yet Exported')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Phase 4 Smart Smoke' })).toBeVisible()
     await expect(page.locator('.final-preview-video')).toHaveAttribute('src', /^autocut-media:/)
-    await expect(page.locator('.review-metadata')).toContainText('960 x 960')
-    await page.screenshot({ path: '/tmp/autocut-studio-phase-three-review.png', fullPage: true })
+    await expect(page.locator('.review-metadata')).toContainText('360 x 640')
+    await expect(page.locator('.review-metadata')).toContainText('Smart')
+    await expect(page.locator('.review-metadata')).toContainText('2 tracks')
+    await expect(page.locator('.edit-plan-list > div')).toHaveCount(5)
+    await expect(page.locator('.selection-reasons')).toHaveCount(5)
+    await expect(page.locator('.preview-version')).toHaveCount(1)
+    await expect(page.locator('.preview-version')).toContainText('V1')
+    const firstPreviewUrl = await page.locator('.final-preview-video').getAttribute('src')
+    await page.screenshot({ path: '/tmp/autocut-studio-phase-four-review.png', fullPage: true })
 
-    await page.getByRole('button', { name: 'Back to Edit' }).first().click()
-    await page.getByLabel('Transition preference').selectOption('dip-to-black')
-    await page.getByLabel('Transition duration').selectOption('0.25')
-    await page.getByRole('button', { name: 'Review Outdated Preview' }).click()
-    await expect(page.getByText('Settings Changed')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Approve & Export' })).toBeDisabled()
     await page.getByRole('button', { name: 'Regenerate' }).click()
-    await expect(page.getByRole('heading', { name: 'Preview ready' })).toBeVisible({ timeout: 45_000 })
+    await expectPreviewReady(page)
     await page.getByRole('button', { name: 'Review Preview' }).click()
+    await expect(page.locator('.preview-version')).toHaveCount(2)
+    await expect(page.locator('.preview-history')).toContainText('V2')
+    await expect(page.locator('.preview-history')).toContainText('V1')
+    expect(await page.locator('.final-preview-video').getAttribute('src')).not.toBe(firstPreviewUrl)
+
+    await page.getByRole('button', { name: /V1.*Settings Changed/ }).click()
+    await expect(page.getByText('Settings Changed', { exact: true }).first()).toBeVisible()
+    await page.getByRole('button', { name: /V2.*Current Preview/ }).click()
+    await expect(page.getByRole('button', { name: 'Approve & Export' })).toBeEnabled()
 
     await electronApp.evaluate(({ dialog }, selectedPath) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: selectedPath })
     }, outputPath)
     await page.getByRole('button', { name: 'Approve & Export' }).click()
-    await expect(page.getByRole('heading', { name: 'Export complete' })).toBeVisible({ timeout: 60_000 })
-    expect((await stat(outputPath)).size).toBeGreaterThan(10_000)
+    await expect(page.getByRole('heading', { name: 'Export complete' })).toBeVisible({ timeout: 120_000 })
+    await page.getByRole('button', { name: 'View Export Summary' }).click()
+    await expect(page.locator('.export-summary')).toContainText('360 x 640')
+    expect((await stat(outputPath)).size).toBeGreaterThan(20_000)
 
     const { stdout } = await execFileAsync('ffprobe', [
-      '-v',
-      'error',
-      '-print_format',
-      'json',
-      '-show_format',
-      '-show_streams',
-      outputPath
+      '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', outputPath
     ])
     const probe = JSON.parse(stdout) as {
       format: { duration: string }
       streams: Array<{ codec_type: string; codec_name: string; width?: number; height?: number }>
     }
-    expect(Number(probe.format.duration)).toBeGreaterThan(2.5)
-    expect(probe.streams).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ codec_type: 'video', codec_name: 'h264', width: 1080, height: 1080 }),
-        expect.objectContaining({ codec_type: 'audio', codec_name: 'aac' })
-      ])
-    )
+    expect(Number(probe.format.duration)).toBeGreaterThan(9.5)
+    expect(probe.streams).toEqual(expect.arrayContaining([
+      expect.objectContaining({ codec_type: 'video', codec_name: 'h264', width: 360, height: 640 }),
+      expect.objectContaining({ codec_type: 'audio', codec_name: 'aac' })
+    ]))
 
-    await page.getByRole('button', { name: 'View Export Summary' }).click()
-    await expect(page.getByText('Export Complete')).toBeVisible()
-    await expect(page.locator('.export-summary')).toContainText('1080 x 1080')
     await page.getByRole('button', { name: 'Back to Project' }).click()
+    await page.getByRole('button', { name: 'Save Project' }).click()
+    await expect(page.locator('.project-feedback')).toContainText('Project saved')
+    const savedAfterExport = JSON.parse(await readFile(projectPath, 'utf8')) as {
+      previewHistory: Array<{ approved: boolean; artifact: { logPath: string; plan: { selectionSeed: number; segments: unknown[] } } }>
+    }
+    expect(savedAfterExport.previewHistory).toHaveLength(2)
+    expect(savedAfterExport.previewHistory[0].approved).toBe(true)
+    expect(savedAfterExport.previewHistory[0].artifact.plan.segments).toHaveLength(5)
+    expect(savedAfterExport.previewHistory[0].artifact.plan.selectionSeed).toBe(1)
+    const renderLog = await readFile(savedAfterExport.previewHistory[0].artifact.logPath, 'utf8')
+    expect(renderLog).toContain('"stage":"smart-selection"')
+    expect(renderLog).toContain('"cache":"hit"')
+    expect(renderLog).toContain('"stage":"soundtrack-plan"')
+    expect(renderLog).toContain('"stage":"accurate-loudness-measurement"')
 
-    await page.getByLabel('Preview quality').selectOption('full')
-    await page.getByLabel('Output quality').selectOption('draft')
-    await page.getByRole('button', { name: 'Generate Preview' }).click()
-    await expect(page.getByRole('heading', { name: 'Preview ready' })).toBeVisible({ timeout: 60_000 })
-    await page.getByRole('button', { name: 'Review Preview' }).click()
-    await expect(page.locator('.review-metadata')).toContainText('1080 x 1080')
+    await page.getByRole('button', { name: 'Back to Home' }).click()
+    await page.locator('.recent-project-open').filter({ hasText: 'Phase 4 Smart Smoke' }).first().click()
+    await expect(page.locator('.clip-card')).toHaveCount(5)
+    await page.getByRole('button', { name: /Review/ }).click()
+    await expect(page.locator('.preview-version')).toHaveCount(2)
+    await expect(page.locator('.preview-history')).toContainText('Approved Export')
+    await page.getByRole('button', { name: 'Delete V1' }).click()
+    await expect(page.locator('.preview-version')).toHaveCount(1)
+    await Promise.all(clips.map((path) => access(path)))
+    await access(musicOne)
+    await access(musicTwo)
+    await access(outputPath)
     await page.setViewportSize({ width: 720, height: 900 })
     await expect(page.getByRole('button', { name: 'Approve & Export' })).toBeVisible()
-    await page.screenshot({ path: '/tmp/autocut-studio-phase-three-review-compact.png', fullPage: true })
-    await page.setViewportSize({ width: 1366, height: 768 })
-
-    await electronApp.evaluate(({ dialog }, selectedPath) => {
-      dialog.showSaveDialog = async () => ({ canceled: false, filePath: selectedPath })
-    }, fullPreviewOutputPath)
-    await page.getByRole('button', { name: 'Approve & Export' }).click()
-    await expect(page.getByRole('heading', { name: 'Export complete' })).toBeVisible({ timeout: 30_000 })
-    await page.getByRole('button', { name: 'View Export Summary' }).click()
-    await expect(page.locator('.export-summary')).toContainText('Preview reused')
-    expect((await stat(fullPreviewOutputPath)).size).toBeGreaterThan(10_000)
-    await page.getByRole('button', { name: 'Back to Project' }).click()
-    await page.getByRole('button', { name: 'Back to Home' }).click()
-    await rm(audioPath, { force: true })
-    await page.locator('.recent-project-open').filter({ hasText: 'Phase 3 Smoke' }).first().click()
-    await expect(page.getByText('Audio file missing', { exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Locate File' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Remove Audio' })).toBeVisible()
-    await page.screenshot({ path: '/tmp/autocut-studio-phase-two.png', fullPage: true })
+    await page.screenshot({ path: '/tmp/autocut-studio-phase-four-compact.png', fullPage: true })
   } finally {
     await electronApp.close()
     await rm(fixtureDirectory, { recursive: true, force: true })

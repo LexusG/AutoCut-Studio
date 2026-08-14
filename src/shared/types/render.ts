@@ -7,12 +7,26 @@ export type FitMode = 'crop' | 'fit'
 export type RenderQuality = 'draft' | 'balanced' | 'high'
 export type PreviewQuality = 'fast' | 'full'
 export type TransitionPreference = 'none' | 'crossfade' | 'fade' | 'dip-to-black'
+export type SelectionMode = 'classic' | 'smart'
+export type AnalysisQuality = 'fast' | 'balanced' | 'detailed'
+export type FitBackgroundMode = 'black' | 'blurred'
+export type BlurStrength = 'low' | 'medium' | 'high'
+export type AudioNormalizationMode = 'off' | 'fast' | 'accurate'
 
 export interface RenderBackgroundTrack {
   path: string
   filename: string
   duration: number
   missing: boolean
+}
+
+export interface RenderSoundtrackTrack extends RenderBackgroundTrack {
+  id: string
+  enabled: boolean
+  volume: number
+  startPosition: number
+  fadeIn: { enabled: boolean; duration: number }
+  fadeOut: { enabled: boolean; duration: number }
 }
 
 export interface RenderAudioSettings {
@@ -26,6 +40,11 @@ export interface RenderAudioSettings {
   fadeIn: { enabled: boolean; duration: number }
   fadeOut: { enabled: boolean; duration: number }
   duckMusicDuringClipAudio: boolean
+  soundtrackEnabled: boolean
+  soundtrackTracks: RenderSoundtrackTrack[]
+  soundtrackCrossfade: number
+  normalizationMode: AudioNormalizationMode
+  normalizeFinalMix: boolean
 }
 
 export interface RenderSettings {
@@ -44,6 +63,37 @@ export interface RenderSettings {
   transitionPreference: TransitionPreference
   transitionDuration: number
   audio: RenderAudioSettings
+  selectionMode: SelectionMode
+  analysisQuality: AnalysisQuality
+  smartPreferences: {
+    preferPeople: boolean
+    preferMotion: boolean
+    preferClearFootage: boolean
+    preferAudibleMoments: boolean
+  }
+  selectionSeed: number
+  fitBackground: FitBackgroundMode
+  blurStrength: BlurStrength
+}
+
+export interface CandidateScores {
+  sharpness: number
+  exposure: number
+  motion: number
+  stability: number
+  audioActivity: number
+  personPresence: number
+  sceneQuality: number
+  blackFramePenalty: number
+  duplicatePenalty: number
+  total: number
+}
+
+export interface SelectedCandidateMetadata {
+  candidateId: string
+  scores: CandidateScores
+  reasons: string[]
+  analysisFallback: boolean
 }
 
 export interface RenderPlanTransition {
@@ -65,6 +115,7 @@ export interface RenderPlanSegment {
   sourceFrameRate: number
   sourceRotation: number
   transitionToNext: RenderPlanTransition | null
+  selectedCandidate: SelectedCandidateMetadata | null
 }
 
 export interface RenderPlanOutput {
@@ -91,6 +142,12 @@ export interface RenderPlan {
   expectedDuration: number
   audio: RenderAudioSettings
   warnings: string[]
+  selectionMode: SelectionMode
+  selectionSeed: number
+  analysisVersion: string | null
+  fitBackground: FitBackgroundMode
+  blurStrength: BlurStrength
+  previewVersion: number
 }
 
 export interface PreviewRenderRequest {
@@ -112,6 +169,8 @@ export interface ExportRenderRequest {
 
 export type RenderStage =
   | 'Analyzing clips'
+  | 'Detecting scenes'
+  | 'Evaluating candidate segments'
   | 'Planning edit'
   | 'Preparing clips'
   | 'Normalizing video'
@@ -150,6 +209,8 @@ export interface RenderArtifact {
   previewQuality: PreviewQuality
   reusedPreview: boolean
   logPath: string
+  thumbnailPath: string
+  thumbnailUrl: string
 }
 
 export interface DurationConstraintIssue {
@@ -189,8 +250,24 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
     musicStartPosition: 0,
     fadeIn: { enabled: true, duration: 1 },
     fadeOut: { enabled: true, duration: 2 },
-    duckMusicDuringClipAudio: true
-  }
+    duckMusicDuringClipAudio: true,
+    soundtrackEnabled: true,
+    soundtrackTracks: [],
+    soundtrackCrossfade: 1.5,
+    normalizationMode: 'fast',
+    normalizeFinalMix: false
+  },
+  selectionMode: 'classic',
+  analysisQuality: 'balanced',
+  smartPreferences: {
+    preferPeople: false,
+    preferMotion: true,
+    preferClearFootage: true,
+    preferAudibleMoments: true
+  },
+  selectionSeed: 0,
+  fitBackground: 'black',
+  blurStrength: 'medium'
 }
 
 // Compatibility alias for Phase 1/2 callers.

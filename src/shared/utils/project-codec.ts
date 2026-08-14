@@ -1,44 +1,153 @@
-import type { ProjectFile, ProjectSettings } from '../types'
+import type { AudioTrack, PreviewVersion, ProjectFile, ProjectSettings, SoundtrackTrack } from '../types'
 import { createDefaultProjectSettings } from './project-settings'
+
+function migrateLegacyTrack(track: AudioTrack, settings: ProjectSettings): SoundtrackTrack {
+  return {
+    ...track,
+    enabled: true,
+    volume: 100,
+    startPosition: settings.audio.musicStartPosition,
+    fadeIn: { ...settings.audio.fadeIn },
+    fadeOut: { ...settings.audio.fadeOut }
+  }
+}
 
 function hydrateSettings(value: unknown): ProjectSettings {
   if (!value || typeof value !== 'object') throw new Error('Project settings are missing.')
   const raw = value as Partial<ProjectSettings>
   const defaults = createDefaultProjectSettings()
-  return {
-    ...defaults,
-    ...raw,
-    output: { ...defaults.output, ...(raw.output ?? {}) },
-    editing: {
-      ...defaults.editing,
-      ...(raw.editing ?? {}),
-      targetDuration: {
-        ...defaults.editing.targetDuration,
-        ...(raw.editing?.targetDuration ?? {})
-      }
+  const output = { ...defaults.output, ...(raw.output ?? {}) }
+  const editing = {
+    ...defaults.editing,
+    ...(raw.editing ?? {}),
+    targetDuration: {
+      ...defaults.editing.targetDuration,
+      ...(raw.editing?.targetDuration ?? {})
     },
+    smartPreferences: {
+      ...defaults.editing.smartPreferences,
+      ...(raw.editing?.smartPreferences ?? {})
+    }
+  }
+  const audio = {
+    ...defaults.audio,
+    ...(raw.audio ?? {}),
+    fadeIn: { ...defaults.audio.fadeIn, ...(raw.audio?.fadeIn ?? {}) },
+    fadeOut: { ...defaults.audio.fadeOut, ...(raw.audio?.fadeOut ?? {}) },
+    soundtrack: {
+      ...defaults.audio.soundtrack,
+      ...(raw.audio?.soundtrack ?? {}),
+      tracks: (raw.audio?.soundtrack?.tracks ?? []).map((track) => ({
+        ...track,
+        enabled: track.enabled ?? true,
+        volume: track.volume ?? 100,
+        startPosition: track.startPosition ?? 0,
+        fadeIn: { ...(track.fadeIn ?? { enabled: false, duration: 1 }) },
+        fadeOut: { ...(track.fadeOut ?? { enabled: false, duration: 1 }) }
+      }))
+    }
+  }
+  const settings: ProjectSettings = { ...defaults, ...raw, output, editing, audio }
+  if (settings.audio.soundtrack.tracks.length === 0 && settings.audio.backgroundTrack) {
+    settings.audio.soundtrack = {
+      enabled: true,
+      tracks: [migrateLegacyTrack(settings.audio.backgroundTrack, settings)],
+      masterVolume: settings.audio.musicVolume,
+      loop: settings.audio.loopBackgroundMusic,
+      crossfadeEnabled: true,
+      crossfadeDuration: 1.5
+    }
+  }
+  settings.audio.normalizationMode = raw.audio?.normalizationMode
+    ?? (settings.audio.normalizeClipAudio ? 'fast' : 'off')
+  return settings
+}
+
+function clearSettingsMediaUrls(settings: ProjectSettings): ProjectSettings {
+  return {
+    ...settings,
     audio: {
-      ...defaults.audio,
-      ...(raw.audio ?? {}),
-      fadeIn: { ...defaults.audio.fadeIn, ...(raw.audio?.fadeIn ?? {}) },
-      fadeOut: { ...defaults.audio.fadeOut, ...(raw.audio?.fadeOut ?? {}) }
+      ...settings.audio,
+      backgroundTrack: settings.audio.backgroundTrack
+        ? { ...settings.audio.backgroundTrack, mediaUrl: '', missing: false }
+        : null,
+      soundtrack: {
+        ...settings.audio.soundtrack,
+        tracks: settings.audio.soundtrack.tracks.map((track) => ({
+          ...track,
+          mediaUrl: '',
+          missing: false
+        }))
+      }
     }
   }
 }
 
+function serializePreview(version: PreviewVersion): PreviewVersion {
+  return {
+    ...version,
+    thumbnailUrl: '',
+    artifact: { ...version.artifact, outputUrl: '', thumbnailUrl: '' },
+    settingsSnapshot: clearSettingsMediaUrls(version.settingsSnapshot)
+  }
+}
+
+function hydratePreviewVersion(value: unknown): PreviewVersion | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Partial<PreviewVersion>
+  const artifact = raw.artifact
+  const plan = artifact?.plan
+  if (
+    typeof raw.id !== 'string' ||
+    !Number.isInteger(raw.versionNumber) ||
+    (raw.versionNumber ?? 0) <= 0 ||
+    typeof raw.createdAt !== 'string' ||
+    !artifact ||
+    artifact.kind !== 'preview' ||
+    typeof artifact.outputPath !== 'string' ||
+    typeof artifact.duration !== 'number' ||
+    typeof artifact.width !== 'number' ||
+    typeof artifact.height !== 'number' ||
+    !plan ||
+    typeof plan.id !== 'string' ||
+    !Array.isArray(plan.segments) ||
+    !plan.output ||
+    !plan.audio ||
+    !Array.isArray(plan.audio.soundtrackTracks) ||
+    !raw.settingsSnapshot
+  ) return null
+  try {
+    const thumbnailPath = typeof raw.thumbnailPath === 'string'
+      ? raw.thumbnailPath
+      : typeof artifact.thumbnailPath === 'string' ? artifact.thumbnailPath : ''
+    return {
+      ...raw,
+      artifact: {
+        ...artifact,
+        outputUrl: '',
+        thumbnailPath,
+        thumbnailUrl: ''
+      },
+      thumbnailPath,
+      thumbnailUrl: '',
+      approved: raw.approved === true,
+      outdated: raw.outdated === true,
+      presetName: typeof raw.presetName === 'string' ? raw.presetName : 'Custom',
+      pace: ['slow', 'normal', 'fast'].includes(raw.pace ?? '') ? raw.pace! : plan.pace,
+      selectionMode: raw.selectionMode === 'smart' ? 'smart' : 'classic',
+      targetDuration: typeof raw.targetDuration === 'number' ? raw.targetDuration : null,
+      settingsSnapshot: hydrateSettings(raw.settingsSnapshot)
+    } as PreviewVersion
+  } catch {
+    return null
+  }
+}
+
 export function serializeProjectFile(project: ProjectFile): string {
-  const backgroundTrack = project.settings.audio.backgroundTrack
-  const serializable = {
+  const serializable: ProjectFile = {
     ...project,
-    settings: {
-      ...project.settings,
-      audio: {
-        ...project.settings.audio,
-        backgroundTrack: backgroundTrack
-          ? { ...backgroundTrack, mediaUrl: '', missing: false }
-          : null
-      }
-    }
+    settings: clearSettingsMediaUrls(project.settings),
+    previewHistory: project.previewHistory.map(serializePreview)
   }
   return `${JSON.stringify(serializable, null, 2)}\n`
 }
@@ -46,23 +155,27 @@ export function serializeProjectFile(project: ProjectFile): string {
 export function parseProjectFile(contents: string): ProjectFile {
   let parsed: unknown
   try {
-    parsed = JSON.parse(contents)
+    parsed = JSON.parse(contents) as unknown
   } catch {
     throw new Error('The selected file is not valid AutoCut Studio project JSON.')
   }
   if (!parsed || typeof parsed !== 'object') throw new Error('The project file is invalid.')
-  const raw = parsed as Partial<ProjectFile>
-  if (raw.version !== 2) throw new Error('This project version is not supported.')
+  const raw = parsed as Record<string, unknown>
+  if (raw.version !== 2 && raw.version !== 3) throw new Error('This project version is not supported.')
   if (typeof raw.id !== 'string' || !raw.id) throw new Error('The project identifier is missing.')
   if (!Array.isArray(raw.sourcePaths) || !raw.sourcePaths.every((path) => typeof path === 'string')) {
     throw new Error('The project source list is invalid.')
   }
+  const previewHistory = raw.version === 3 && Array.isArray(raw.previewHistory)
+    ? raw.previewHistory.map(hydratePreviewVersion).filter((item): item is PreviewVersion => item !== null)
+    : []
   return {
-    version: 2,
+    version: 3,
     id: raw.id,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString(),
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
     settings: hydrateSettings(raw.settings),
-    sourcePaths: raw.sourcePaths
+    sourcePaths: raw.sourcePaths,
+    previewHistory
   }
 }
