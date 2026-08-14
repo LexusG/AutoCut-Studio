@@ -1,0 +1,38 @@
+{
+  "name": "autocut-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local-first Linux desktop app that turns video clips into finished videos.",
+  "main": "./out/main/index.js",
+  "author": "AutoCut Studio contributors",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:smoke": "npm run build && playwright test"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.11",
+    "lucide-react": "^0.539.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tailwindcss": "^4.1.11",
+    "zustand": "^5.0.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^24.2.1",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^43.4.0",
+    "electron-vite": "^4.0.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.1",
+    "vitest": "^3.2.4"
+  }
+}
