@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises'
+import { access, writeFile } from 'node:fs/promises'
 import { basename, extname, isAbsolute, resolve } from 'node:path'
 import { dialog, ipcMain, shell } from 'electron'
 import { AUDIO_FILE_FILTER } from '@shared/constants/audio'
@@ -16,7 +16,13 @@ import {
   type TranscriptReference,
   type TranscriptionRequest,
   type CaptionBuildRequest,
-  type SubtitleExportRequest
+  type SubtitleExportRequest,
+  type SemanticAnalysisRequest,
+  type SemanticAnalysisReference,
+  type SemanticSearchRequest,
+  type HighlightDiscoveryRequest,
+  type HighlightReelRequest,
+  type ChapterExportRequest
 } from '@shared/types'
 import { parseProjectFile } from '@shared/utils/project-codec'
 import { sanitizeFilenamePart } from '@shared/utils/project-settings'
@@ -55,6 +61,13 @@ import { loadProjectTranscripts, updateTranscript } from '../services/transcript
 import { detectFillerWords } from '../services/transcription/filler-detection'
 import { buildCaptionTrack } from '../services/captions/caption-track-builder'
 import { writeSubtitleFile } from '../services/captions/subtitle-exporter'
+import { getSemanticModelStatus, installSemanticModel, removeSemanticModel } from '../services/semantic/model-manager'
+import { analyzeSemantics, cancelSemanticAnalysis } from '../services/semantic/job-manager'
+import { loadSemanticAnalysis } from '../services/semantic/analysis-repository'
+import { semanticSearch } from '../services/semantic/search-service'
+import { findHighlights } from '../services/semantic/highlight-service'
+import { createHighlightReel } from '../services/semantic/highlight-planner'
+import { serializeChapters } from '../services/semantic/chapter-exporter'
 
 const MAX_FILES_PER_IMPORT = 250
 
@@ -74,6 +87,7 @@ function isRenderSettings(value: unknown): value is RenderSettings {
   const audio = settings.audio
   const preferences = settings.smartPreferences
   const captions = settings.captions
+  const semantic = settings.semantic
   const validSoundtrackTracks =
     Array.isArray(audio?.soundtrackTracks) &&
     audio.soundtrackTracks.length <= 100 &&
@@ -133,6 +147,12 @@ function isRenderSettings(value: unknown): value is RenderSettings {
     Boolean(captions?.style) &&
     typeof captions?.style.fontSize === 'number' && captions.style.fontSize >= 8 && captions.style.fontSize <= 240 &&
     typeof captions?.style.textColor === 'string' &&
+    Boolean(semantic) &&
+    semantic?.provider === 'minilm-transformers-js' &&
+    semantic?.model === 'Xenova/all-MiniLM-L6-v2' &&
+    typeof semantic?.enabled === 'boolean' &&
+    typeof semantic?.editGoal === 'string' && semantic.editGoal.length <= 500 &&
+    ['light', 'balanced', 'strong'].includes(semantic?.editGoalStrength ?? '') &&
     typeof settings.useEveryClip === 'boolean' &&
     (settings.targetDuration == null ||
       (typeof settings.targetDuration === 'number' && settings.targetDuration > 0)) &&
@@ -230,7 +250,7 @@ function isRenderPlan(value: unknown): value is RenderPlan {
   if (!value || typeof value !== 'object') return false
   const plan = value as Partial<RenderPlan>
   return (
-    plan.version === 3 &&
+    plan.version === 4 &&
     typeof plan.id === 'string' &&
     typeof plan.projectId === 'string' &&
     ['classic', 'smart'].includes(plan.selectionMode ?? '') &&
@@ -250,6 +270,12 @@ function isRenderPlan(value: unknown): value is RenderPlan {
     ['none', 'fade', 'pop'].includes(plan.captionAnimation ?? '') &&
     Number.isInteger(plan.transcriptVersion) &&
     Number.isInteger(plan.transcriptEditRevision) &&
+    typeof plan.editGoal === 'string' &&
+    ['light', 'balanced', 'strong'].includes(plan.editGoalStrength ?? '') &&
+    Array.isArray(plan.topicSelections) &&
+    Array.isArray(plan.semanticHints) &&
+    ['full-edit', 'highlight-reel', 'social-cut', 'custom-selection'].includes(plan.generationMode ?? '') &&
+    Array.isArray(plan.highlightCandidateIds) &&
     Number.isInteger(plan.previewVersion) &&
     (plan.previewVersion ?? 0) > 0 &&
     Number.isInteger(plan.revision) &&
@@ -563,6 +589,79 @@ export function registerIpcHandlers(): void {
     })
     if (result.canceled || !result.filePath) return null
     await writeSubtitleFile(result.filePath, request.format, request.track)
+    return result.filePath
+  })
+
+  ipcMain.handle(IPC_CHANNELS.semanticModelStatus, () => getSemanticModelStatus())
+
+  ipcMain.handle(IPC_CHANNELS.semanticInstallModel, (event) => installSemanticModel((percent) => {
+    if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.semanticModelProgress, percent)
+  }))
+
+  ipcMain.handle(IPC_CHANNELS.semanticRemoveModel, () => removeSemanticModel())
+
+  ipcMain.handle(IPC_CHANNELS.semanticAnalyze, (event, value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The semantic analysis request is invalid.')
+    const request = value as SemanticAnalysisRequest
+    validateRenderId(request.jobId)
+    validateStorageId(request.projectId, 'Project')
+    if (!Array.isArray(request.transcripts) || request.transcripts.length > MAX_FILES_PER_IMPORT) {
+      throw new Error('Semantic analysis requires valid project transcripts.')
+    }
+    if (!['interactive', 'normal', 'background'].includes(request.priority)) throw new Error('The analysis priority is invalid.')
+    return analyzeSemantics(request, (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.semanticProgress, progress)
+    })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.semanticCancel, (_event, value: unknown) => {
+    if (typeof value !== 'string') throw new Error('The semantic job identifier is invalid.')
+    return cancelSemanticAnalysis(value)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.semanticLoad, (_event, projectId: unknown, reference: unknown) =>
+    loadSemanticAnalysis(validateStorageId(projectId, 'Project'), reference as SemanticAnalysisReference | null))
+
+  ipcMain.handle(IPC_CHANNELS.semanticSearch, (_event, value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The semantic search request is invalid.')
+    const request = value as SemanticSearchRequest
+    validateStorageId(request.projectId, 'Project')
+    if (typeof request.query !== 'string' || request.query.length > 500 || !['exact', 'semantic'].includes(request.mode)) {
+      throw new Error('The semantic search request is invalid.')
+    }
+    return semanticSearch(request)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.highlightFind, (_event, value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The highlight request is invalid.')
+    const request = value as HighlightDiscoveryRequest
+    validateStorageId(request.projectId, 'Project')
+    if (request.plan && !isRenderPlan(request.plan)) throw new Error('The highlight Edit Plan is invalid.')
+    if (!Array.isArray(request.semanticHints) || !Array.isArray(request.topicSelections)) throw new Error('The highlight constraints are invalid.')
+    return findHighlights(request)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.highlightCreateReel, (_event, value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The highlight reel request is invalid.')
+    const request = value as HighlightReelRequest
+    validateStorageId(request.projectId, 'Project')
+    if (!isRenderPlan(request.parentPlan) || !Array.isArray(request.highlights) || request.targetDuration <= 0) {
+      throw new Error('The highlight reel request is invalid.')
+    }
+    return createHighlightReel(request)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.chapterExport, async (_event, value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The chapter export request is invalid.')
+    const request = value as ChapterExportRequest
+    if (!Array.isArray(request.topics)) throw new Error('The chapter list is invalid.')
+    const result = await dialog.showSaveDialog({
+      title: 'Export chapter markers',
+      defaultPath: `${sanitizeFilenamePart(request.projectName)}_chapters.txt`,
+      filters: [{ name: 'Chapter markers', extensions: ['txt'] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    await writeFile(result.filePath, serializeChapters(request.topics), 'utf8')
     return result.filePath
   })
 

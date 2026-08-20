@@ -28,6 +28,14 @@ import type {
   TranscriptTextEdit,
   TranscriptionSettings
 } from './transcription'
+import type {
+  HighlightCandidate,
+  OutputVariant,
+  SemanticAnalysisReference,
+  SemanticHintRange,
+  SemanticProjectSettings,
+  TopicSegment
+} from './semantic'
 
 export type PlatformId = 'instagram' | 'youtube' | 'linkedin' | 'custom'
 export type Orientation = 'landscape' | 'portrait' | 'square' | 'source'
@@ -169,10 +177,11 @@ export interface ProjectSettings {
   personAnalysis: PersonAnalysisConfiguration
   transcription: TranscriptionSettings
   captions: CaptionSettings
+  semantic: SemanticProjectSettings
 }
 
 export interface ProjectFile {
-  version: 6
+  version: 7
   id: string
   createdAt: string
   updatedAt: string
@@ -184,6 +193,11 @@ export interface ProjectFile {
   transcriptCorrections: TranscriptCorrection[]
   textEdits: TranscriptTextEdit[]
   transcriptEditRevision: number
+  semanticAnalysis: SemanticAnalysisReference | null
+  topics: TopicSegment[]
+  semanticHints: SemanticHintRange[]
+  highlightCandidates: HighlightCandidate[]
+  outputVariants: OutputVariant[]
 }
 
 export interface PreviewVersion {
@@ -202,6 +216,7 @@ export interface PreviewVersion {
   selectionMode: SelectionMode
   targetDuration: number | null
   settingsSnapshot: ProjectSettings
+  variantId: string | null
 }
 
 export interface PreviewStorageStats {

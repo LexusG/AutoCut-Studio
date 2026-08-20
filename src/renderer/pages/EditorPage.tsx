@@ -61,7 +61,7 @@ export function EditorPage(): React.JSX.Element {
             <Sparkles size={16} /> {editPlan ? 'Update Edit Plan' : 'Create Edit Plan'}
           </button>
           {editPlan && <button className="button button-secondary" type="button" onClick={showEditPlan}><ClipboardList size={16} /> Review Plan</button>}
-          <button className="button button-secondary" type="button" onClick={() => setTranscriptOpen(true)}><FileText size={16} /> Transcript</button>
+          <button className="button button-secondary" type="button" aria-label="Transcript" onClick={() => setTranscriptOpen(true)}><FileText size={16} /> Content</button>
           <button className="button button-primary" type="button" disabled={!editPlan || editPlanOutdated || isRendering} onClick={() => void generatePreview()}><Play size={16} fill="currentColor" /> Generate Preview</button>
         </div>
       </header>

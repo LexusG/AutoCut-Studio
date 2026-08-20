@@ -72,8 +72,12 @@ function hydrateSettings(value: unknown, legacy = false): ProjectSettings {
       ...(raw.captions?.style ?? {})
     }
   }
+  const semantic = {
+    ...defaults.semantic,
+    ...(raw.semantic ?? {})
+  }
   const settings: ProjectSettings = {
-    ...defaults, ...raw, output, editing, audio, personAnalysis, transcription, captions
+    ...defaults, ...raw, output, editing, audio, personAnalysis, transcription, captions, semantic
   }
   if (settings.audio.soundtrack.tracks.length === 0 && settings.audio.backgroundTrack) {
     settings.audio.soundtrack = {
@@ -99,7 +103,7 @@ function hydrateRenderPlan(value: unknown): RenderPlan | null {
   if (!Array.isArray(raw.segments) || !raw.output || !raw.audio || typeof raw.id !== 'string') return null
   return {
     ...raw,
-    version: 3,
+    version: 4,
     revision: Number.isInteger(raw.revision) && (raw.revision ?? 0) > 0 ? raw.revision! : 1,
     contentAwareness: raw.contentAwareness ?? 'off',
     speechCutProtection: raw.speechCutProtection ?? 'off',
@@ -116,6 +120,16 @@ function hydrateRenderPlan(value: unknown): RenderPlan | null {
     captionAnimation: raw.captionAnimation ?? 'none',
     transcriptVersion: raw.transcriptVersion ?? 0,
     transcriptEditRevision: raw.transcriptEditRevision ?? 0,
+    editGoal: raw.editGoal ?? '',
+    editGoalStrength: raw.editGoalStrength ?? 'balanced',
+    semanticModelVersion: raw.semanticModelVersion ?? null,
+    semanticAnalysisVersion: raw.semanticAnalysisVersion ?? null,
+    topicSelections: raw.topicSelections ?? [],
+    semanticHints: raw.semanticHints ?? [],
+    variantId: raw.variantId ?? null,
+    generationMode: raw.generationMode ?? 'full-edit',
+    highlightCandidateIds: raw.highlightCandidateIds ?? [],
+    topicCoverageEnabled: raw.topicCoverageEnabled ?? true,
     audio: { ...raw.audio, duckingTrigger: raw.audio.duckingTrigger ?? 'automatic' },
     segments: raw.segments.map((segment) => ({
       ...segment,
@@ -170,7 +184,7 @@ function hydratePreviewVersion(value: unknown, projectId: string): PreviewVersio
   const raw = value as Partial<PreviewVersion>
   const artifact = raw.artifact
   const plan = artifact?.plan
-  const legacy = (plan as { version?: number } | undefined)?.version !== 3
+  const legacy = ((plan as { version?: number } | undefined)?.version ?? 0) < 3
   if (
     typeof raw.id !== 'string' ||
     !Number.isInteger(raw.versionNumber) ||
@@ -244,7 +258,8 @@ function hydratePreviewVersion(value: unknown, projectId: string): PreviewVersio
       pace: ['slow', 'normal', 'fast'].includes(raw.pace ?? '') ? raw.pace! : plan.pace,
       selectionMode: raw.selectionMode === 'smart' ? 'smart' : 'classic',
       targetDuration: typeof raw.targetDuration === 'number' ? raw.targetDuration : null,
-      settingsSnapshot: hydrateSettings(raw.settingsSnapshot, legacy)
+      settingsSnapshot: hydrateSettings(raw.settingsSnapshot, legacy),
+      variantId: typeof raw.variantId === 'string' ? raw.variantId : null
     } as PreviewVersion
   } catch {
     return null
@@ -255,7 +270,11 @@ export function serializeProjectFile(project: ProjectFile): string {
   const serializable: ProjectFile = {
     ...project,
     settings: clearSettingsMediaUrls(project.settings),
-    previewHistory: project.previewHistory.map(serializePreview)
+    previewHistory: project.previewHistory.map(serializePreview),
+    outputVariants: project.outputVariants.map((variant) => ({
+      ...variant,
+      previewHistory: variant.previewHistory.map(serializePreview)
+    }))
   }
   return `${JSON.stringify(serializable, null, 2)}\n`
 }
@@ -269,34 +288,48 @@ export function parseProjectFile(contents: string): ProjectFile {
   }
   if (!parsed || typeof parsed !== 'object') throw new Error('The project file is invalid.')
   const raw = parsed as Record<string, unknown>
-  if (raw.version !== 2 && raw.version !== 3 && raw.version !== 4 && raw.version !== 5 && raw.version !== 6) {
+  if (raw.version !== 2 && raw.version !== 3 && raw.version !== 4 && raw.version !== 5 && raw.version !== 6 && raw.version !== 7) {
     throw new Error('This project version is not supported.')
   }
   if (typeof raw.id !== 'string' || !raw.id) throw new Error('The project identifier is missing.')
   if (!Array.isArray(raw.sourcePaths) || !raw.sourcePaths.every((path) => typeof path === 'string')) {
     throw new Error('The project source list is invalid.')
   }
-  const previewHistory = (raw.version === 3 || raw.version === 4 || raw.version === 5 || raw.version === 6) && Array.isArray(raw.previewHistory)
+  const previewHistory = raw.version >= 3 && Array.isArray(raw.previewHistory)
     ? raw.previewHistory
         .map((value) => hydratePreviewVersion(value, raw.id as string))
         .filter((item): item is PreviewVersion => item !== null)
     : []
   return {
-    version: 6,
+    version: 7,
     id: raw.id,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString(),
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
     settings: hydrateSettings(raw.settings, raw.version < 5),
     sourcePaths: raw.sourcePaths,
     previewHistory,
-    editPlan: raw.version === 5 || raw.version === 6 ? hydrateRenderPlan(raw.editPlan) : null,
-    transcriptReferences: raw.version === 6 && Array.isArray(raw.transcriptReferences)
+    editPlan: raw.version >= 5 ? hydrateRenderPlan(raw.editPlan) : null,
+    transcriptReferences: raw.version >= 6 && Array.isArray(raw.transcriptReferences)
       ? raw.transcriptReferences as ProjectFile['transcriptReferences'] : [],
-    transcriptCorrections: raw.version === 6 && Array.isArray(raw.transcriptCorrections)
+    transcriptCorrections: raw.version >= 6 && Array.isArray(raw.transcriptCorrections)
       ? raw.transcriptCorrections as ProjectFile['transcriptCorrections'] : [],
-    textEdits: raw.version === 6 && Array.isArray(raw.textEdits)
+    textEdits: raw.version >= 6 && Array.isArray(raw.textEdits)
       ? raw.textEdits as ProjectFile['textEdits'] : [],
-    transcriptEditRevision: raw.version === 6 && Number.isInteger(raw.transcriptEditRevision)
-      ? raw.transcriptEditRevision as number : 0
+    transcriptEditRevision: raw.version >= 6 && Number.isInteger(raw.transcriptEditRevision)
+      ? raw.transcriptEditRevision as number : 0,
+    semanticAnalysis: raw.version >= 7 && raw.semanticAnalysis && typeof raw.semanticAnalysis === 'object'
+      ? raw.semanticAnalysis as ProjectFile['semanticAnalysis'] : null,
+    topics: raw.version >= 7 && Array.isArray(raw.topics) ? raw.topics as ProjectFile['topics'] : [],
+    semanticHints: raw.version >= 7 && Array.isArray(raw.semanticHints) ? raw.semanticHints as ProjectFile['semanticHints'] : [],
+    highlightCandidates: raw.version >= 7 && Array.isArray(raw.highlightCandidates) ? raw.highlightCandidates as ProjectFile['highlightCandidates'] : [],
+    outputVariants: raw.version >= 7 && Array.isArray(raw.outputVariants)
+      ? (raw.outputVariants as ProjectFile['outputVariants']).map((variant) => ({
+          ...variant,
+          renderPlan: hydrateRenderPlan(variant.renderPlan),
+          previewHistory: Array.isArray(variant.previewHistory)
+            ? variant.previewHistory.map((preview) => hydratePreviewVersion(preview, raw.id as string)).filter((preview): preview is PreviewVersion => preview !== null)
+            : []
+        }))
+      : []
   }
 }

@@ -31,13 +31,12 @@ async function refreshLocalReferences(project: ProjectFile): Promise<ProjectFile
     ? await refreshTrack(project.settings.audio.backgroundTrack)
     : null
   const tracks = await Promise.all(project.settings.audio.soundtrack.tracks.map(refreshTrack))
-  let previewHistory = await Promise.all(
-    project.previewHistory.map((version) => resolvePreviewVersion(project.id, version))
-  )
-  if (previewHistory.some((version) => version.storage.state === 'available' && !version.thumbnailPath)) {
+  const resolveHistory = async (history: ProjectFile['previewHistory']): Promise<ProjectFile['previewHistory']> => {
+    let resolved = await Promise.all(history.map((version) => resolvePreviewVersion(project.id, version)))
+    if (!resolved.some((version) => version.storage.state === 'available' && !version.thumbnailPath)) return resolved
     const ffmpeg = await detectFfmpeg()
     if (ffmpeg.ffmpeg.path) {
-      previewHistory = await Promise.all(previewHistory.map(async (version) => {
+      resolved = await Promise.all(resolved.map(async (version) => {
         try {
           return await regeneratePreviewThumbnail(ffmpeg.ffmpeg.path!, project.id, version)
         } catch {
@@ -45,7 +44,13 @@ async function refreshLocalReferences(project: ProjectFile): Promise<ProjectFile
         }
       }))
     }
+    return resolved
   }
+  const previewHistory = await resolveHistory(project.previewHistory)
+  const outputVariants = await Promise.all(project.outputVariants.map(async (variant) => ({
+    ...variant,
+    previewHistory: await resolveHistory(variant.previewHistory)
+  })))
   return {
     ...project,
     settings: {
@@ -56,7 +61,8 @@ async function refreshLocalReferences(project: ProjectFile): Promise<ProjectFile
         soundtrack: { ...project.settings.audio.soundtrack, tracks }
       }
     },
-    previewHistory
+    previewHistory,
+    outputVariants
   }
 }
 
@@ -103,7 +109,10 @@ export async function saveProjectFile(filePath: string, project: ProjectFile): P
   const temporaryPath = `${filePath}.tmp-${process.pid}`
   await mkdir(dirname(filePath), { recursive: true })
   try {
-    await Promise.all(project.previewHistory.map((version) => updatePreviewMetadata(project.id, version)))
+    await Promise.all([
+      ...project.previewHistory.map((version) => updatePreviewMetadata(project.id, version)),
+      ...project.outputVariants.flatMap((variant) => variant.previewHistory.map((version) => updatePreviewMetadata(project.id, version)))
+    ])
     await writeFile(temporaryPath, serializeProjectFile(project), 'utf8')
     await rename(temporaryPath, filePath)
   } finally {

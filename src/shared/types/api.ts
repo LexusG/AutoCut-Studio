@@ -15,6 +15,7 @@ import type {
   PreviewRenderOutcome,
   PreviewRenderRequest,
   RenderArtifact,
+  RenderPlan,
   RenderProgress
 } from './render'
 import type { PersonAnalysisConfiguration, PersonAnalysisSummary } from './render'
@@ -31,6 +32,20 @@ import type {
   TranscriptionResult,
   TranscriptionStatus
 } from './transcription'
+import type {
+  ChapterExportRequest,
+  HighlightCandidate,
+  HighlightDiscoveryRequest,
+  HighlightReelRequest,
+  SemanticAnalysisProgress,
+  SemanticAnalysisReference,
+  SemanticAnalysisRequest,
+  SemanticAnalysisResult,
+  SemanticModelStatus,
+  SemanticProjectAnalysis,
+  SemanticSearchRequest,
+  SemanticSearchResult
+} from './semantic'
 
 export interface PersonAnalysisFrame {
   timestamp: number
@@ -99,6 +114,18 @@ export interface AutoCutApi {
   detectFillers: (transcript: Transcript) => Promise<Transcript>
   buildCaptionTrack: (request: CaptionBuildRequest) => Promise<CaptionTrack | null>
   exportSubtitles: (request: SubtitleExportRequest) => Promise<string | null>
+  getSemanticModelStatus: () => Promise<SemanticModelStatus>
+  installSemanticModel: () => Promise<SemanticModelStatus>
+  removeSemanticModel: () => Promise<void>
+  onSemanticModelProgress: (callback: (progress: number) => void) => () => void
+  analyzeSemantics: (request: SemanticAnalysisRequest) => Promise<SemanticAnalysisResult>
+  cancelSemanticAnalysis: (jobId: string) => Promise<boolean>
+  onSemanticAnalysisProgress: (callback: (progress: SemanticAnalysisProgress) => void) => () => void
+  loadSemanticAnalysis: (projectId: string, reference: SemanticAnalysisReference | null) => Promise<SemanticProjectAnalysis | null>
+  semanticSearch: (request: SemanticSearchRequest) => Promise<SemanticSearchResult[]>
+  findHighlights: (request: HighlightDiscoveryRequest) => Promise<HighlightCandidate[]>
+  createHighlightReel: (request: HighlightReelRequest) => Promise<RenderPlan>
+  exportChapters: (request: ChapterExportRequest) => Promise<string | null>
   getPathForFile: (file: File) => string
 }
 
@@ -139,5 +166,17 @@ export const IPC_CHANNELS = {
   transcriptionUpdate: 'transcription:update',
   transcriptionDetectFillers: 'transcription:detect-fillers',
   captionBuild: 'captions:build',
-  subtitleExport: 'captions:export-subtitles'
+  subtitleExport: 'captions:export-subtitles',
+  semanticModelStatus: 'semantic:model-status',
+  semanticInstallModel: 'semantic:install-model',
+  semanticRemoveModel: 'semantic:remove-model',
+  semanticModelProgress: 'semantic:model-progress',
+  semanticAnalyze: 'semantic:analyze',
+  semanticCancel: 'semantic:cancel',
+  semanticProgress: 'semantic:progress',
+  semanticLoad: 'semantic:load',
+  semanticSearch: 'semantic:search',
+  highlightFind: 'highlights:find',
+  highlightCreateReel: 'highlights:create-reel',
+  chapterExport: 'semantic:export-chapters'
 } as const

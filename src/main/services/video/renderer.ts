@@ -32,6 +32,7 @@ import { probeMedia } from './metadata'
 import { applySmartSelection } from './smart/smart-selection'
 import type { PersonPresenceProvider } from './smart/optional-ml'
 import { applyContentAwareness, preserveLockedSegments } from './content/content-plan'
+import { applySemanticSelection } from '../semantic/semantic-selection'
 
 const activeRenders = new Map<string, AbortController>()
 
@@ -117,6 +118,13 @@ export async function createEditPlan(
         request.projectId, request.generation, request.sourcePaths, metadata,
         request.settingsFingerprint, request.settings
       )
+      plan = {
+        ...plan,
+        semanticHints: structuredClone(request.semanticHints ?? []),
+        topicSelections: structuredClone(request.topicSelections ?? []),
+        variantId: request.variantId ?? null,
+        generationMode: request.generationMode ?? 'full-edit'
+      }
     } catch (error) {
       if (error instanceof InfeasibleDurationError) {
         return { success: false, issue: {
@@ -133,6 +141,12 @@ export async function createEditPlan(
         (index, filename, stage) => report(stage, 12 + ((index + 0.5) / plan.segments.length) * 45, index + 1, filename),
         logPath, personProvider
       )
+      try {
+        plan = await applySemanticSelection(plan, request.settings, signal)
+      } catch (error) {
+        if (signal.aborted) throw error
+        plan = { ...plan, warnings: [...plan.warnings, 'Semantic analysis unavailable; visual and speech Smart Selection continued.'] }
+      }
     }
     plan = await applyContentAwareness(
       status.ffmpeg.path, plan, request.settings, signal,

@@ -66,6 +66,26 @@ const api: AutoCutApi = {
   detectFillers: (transcript) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionDetectFillers, transcript),
   buildCaptionTrack: (request) => ipcRenderer.invoke(IPC_CHANNELS.captionBuild, request),
   exportSubtitles: (request) => ipcRenderer.invoke(IPC_CHANNELS.subtitleExport, request),
+  getSemanticModelStatus: () => ipcRenderer.invoke(IPC_CHANNELS.semanticModelStatus),
+  installSemanticModel: () => ipcRenderer.invoke(IPC_CHANNELS.semanticInstallModel),
+  removeSemanticModel: () => ipcRenderer.invoke(IPC_CHANNELS.semanticRemoveModel),
+  onSemanticModelProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: number): void => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.semanticModelProgress, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.semanticModelProgress, listener)
+  },
+  analyzeSemantics: (request) => ipcRenderer.invoke(IPC_CHANNELS.semanticAnalyze, request),
+  cancelSemanticAnalysis: (jobId) => ipcRenderer.invoke(IPC_CHANNELS.semanticCancel, jobId),
+  onSemanticAnalysisProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: Parameters<typeof callback>[0]): void => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.semanticProgress, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.semanticProgress, listener)
+  },
+  loadSemanticAnalysis: (projectId, reference) => ipcRenderer.invoke(IPC_CHANNELS.semanticLoad, projectId, reference),
+  semanticSearch: (request) => ipcRenderer.invoke(IPC_CHANNELS.semanticSearch, request),
+  findHighlights: (request) => ipcRenderer.invoke(IPC_CHANNELS.highlightFind, request),
+  createHighlightReel: (request) => ipcRenderer.invoke(IPC_CHANNELS.highlightCreateReel, request),
+  exportChapters: (request) => ipcRenderer.invoke(IPC_CHANNELS.chapterExport, request),
   getPathForFile: (file) => webUtils.getPathForFile(file)
 }
 

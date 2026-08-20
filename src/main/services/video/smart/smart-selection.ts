@@ -111,7 +111,7 @@ export async function applySmartSelection(
           scores: {
             sharpness: 0, exposure: 0, motion: 0, stability: 0, audioActivity: 0,
             personPresence: 0, sceneQuality: 0, blackFramePenalty: 0, duplicatePenalty: 0,
-            speechActivity: 0, speechBoundaryQuality: 0, speechCompleteness: 0, total: 0
+            speechActivity: 0, speechBoundaryQuality: 0, speechCompleteness: 0, semanticRelevance: 0, total: 0
           },
           reasons: ['Classic selection used after analysis failure'],
           analysisFallback: true

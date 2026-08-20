@@ -9,6 +9,10 @@ import type {
 } from '@shared/types'
 import { removeTranscriptRange, restoreTranscriptRange } from '@shared/utils/transcript-edit'
 import { useAppStore } from '../stores/app-store'
+import { SemanticPanel } from './SemanticPanel'
+import { TopicsPanel } from './TopicsPanel'
+import { HighlightsPanel } from './HighlightsPanel'
+import { VersionsPanel } from './VersionsPanel'
 
 function modelFor(quality: string, language: string): string {
   const base = quality === 'fast' ? 'tiny' : quality === 'accurate' ? 'small' : 'base'
@@ -113,7 +117,8 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
   const updatePlan = useAppStore((state) => state.updateEditPlan)
   const addTextEdit = useAppStore((state) => state.addTextEdit)
   const restoreTextEdit = useAppStore((state) => state.restoreTextEdit)
-  const [tab, setTab] = useState<'transcript' | 'captions'>('transcript')
+  const addSemanticHint = useAppStore((state) => state.addSemanticHint)
+  const [tab, setTab] = useState<'transcript' | 'captions' | 'semantic' | 'topics' | 'highlights' | 'versions'>('transcript')
   const [scope, setScope] = useState<TranscriptionScope>('all-clips')
   const [query, setQuery] = useState('')
   const [editingWord, setEditingWord] = useState<string | null>(null)
@@ -218,12 +223,16 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
   const captionTrack = plan?.captionTrack ?? null
 
   return (
-    <section className="transcript-overlay" aria-label="Transcript and captions">
+    <section className="transcript-overlay" aria-label="Transcript and content analysis">
       <header className="transcript-header">
-        <div><FileText size={18} /><span><h2>Transcript</h2><small>Revision {useAppStore.getState().transcriptEditRevision}</small></span></div>
+        <div><FileText size={18} /><span><h2>Transcript</h2><small>Content analysis · revision {useAppStore.getState().transcriptEditRevision}</small></span></div>
         <div className="segmented-control transcript-tabs">
           <button className={tab === 'transcript' ? 'active' : ''} type="button" onClick={() => setTab('transcript')}>Transcript</button>
           <button className={tab === 'captions' ? 'active' : ''} type="button" onClick={() => setTab('captions')}>Captions</button>
+          <button className={tab === 'semantic' ? 'active' : ''} type="button" onClick={() => setTab('semantic')}>Semantic</button>
+          <button className={tab === 'topics' ? 'active' : ''} type="button" onClick={() => setTab('topics')}>Topics</button>
+          <button className={tab === 'highlights' ? 'active' : ''} type="button" onClick={() => setTab('highlights')}>Highlights</button>
+          <button className={tab === 'versions' ? 'active' : ''} type="button" onClick={() => setTab('versions')}>Versions</button>
         </div>
         <button className="icon-button" type="button" onClick={close} title="Close Transcript" aria-label="Close Transcript"><X size={18} /></button>
       </header>
@@ -266,6 +275,8 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
             {editError && <div className="inline-error" role="alert">{editError}</div>}
             <button className="button button-secondary" type="button" disabled={selectedWords()?.words.length !== 1} onClick={() => { const selected = selectedWords(); if (selected?.words.length === 1) setEditingWord(selected.words[0].id) }}>Correct Word</button>
             <button className="button button-secondary" type="button" disabled={!selectedWords() || !plan} onClick={() => { const selected = selectedWords(); if (selected) removeRange(selected.transcript, selected.words[0].start, selected.words.at(-1)!.end, selected.words.every((word) => word.filler) ? 'remove-filler' : 'remove-range') }}><Scissors size={15} /> Remove From Edit</button>
+            <button className="button button-secondary" type="button" disabled={!selectedWords()} onClick={() => { const selected = selectedWords(); if (selected) addSemanticHint({ id: crypto.randomUUID(), sourceClipId: selected.transcript.sourceClipId, sourcePath: selected.transcript.sourcePath, start: selected.words[0].start, end: selected.words.at(-1)!.end, kind: 'prioritize', createdAt: new Date().toISOString() }) }}><Sparkles size={15} /> Prioritize This</button>
+            <button className="button button-secondary" type="button" disabled={!selectedWords()} onClick={() => { const selected = selectedWords(); if (selected) addSemanticHint({ id: crypto.randomUUID(), sourceClipId: selected.transcript.sourceClipId, sourcePath: selected.transcript.sourcePath, start: selected.words[0].start, end: selected.words.at(-1)!.end, kind: 'exclude', createdAt: new Date().toISOString() }) }}><X size={15} /> Avoid This Section</button>
             <label><span>Long pauses</span><select value={pauseThreshold} onChange={(event) => setPauseThreshold(Number(event.target.value))}><option value="0.5">0.5 sec</option><option value="1">1 sec</option><option value="2">2 sec</option></select></label>
             <div className="pause-list">{transcripts.flatMap((transcript) => transcript.words.slice(1).flatMap((word, index) => {
               const previous = transcript.words[index]
@@ -275,7 +286,7 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
             {textEdits.some((edit) => !edit.restored) && <><h3>Removed Ranges</h3><div className="removed-range-list">{textEdits.filter((edit) => !edit.restored).map((edit) => <button key={edit.id} type="button" onClick={() => { if (!plan) return; try { updatePlan(() => restoreTranscriptRange(plan, edit)); restoreTextEdit(edit.id); setEditError(null) } catch (operationError) { setEditError(operationError instanceof Error ? operationError.message : 'The range could not be restored.') } }}><RotateCcw size={13} /> Restore {clock(edit.start)}-{clock(edit.end)}</button>)}</div></>}
           </aside>
         </div>
-      ) : (
+      ) : tab === 'captions' ? (
         <div className="caption-layout">
           <aside className="caption-controls">
             <h3>Caption Configuration</h3>
@@ -304,7 +315,7 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
           </aside>
           <div className="caption-inspector"><header><div><h3>Caption Inspector</h3><span>{captionTrack?.chunks.filter((chunk) => !chunk.deleted).length ?? 0} captions</span></div>{captionTrack && <span className="caption-ready"><Check size={14} /> Preview ready</span>}</header>{captionTrack ? <CaptionInspector chunks={captionTrack.chunks} /> : <div className="transcript-empty"><Captions size={28} /><strong>No caption track</strong><span>Generate captions from the current transcript and frozen Edit Plan.</span></div>}</div>
         </div>
-      )}
+      ) : tab === 'semantic' ? <SemanticPanel /> : tab === 'topics' ? <TopicsPanel /> : tab === 'highlights' ? <HighlightsPanel closeWorkspace={close} /> : <VersionsPanel />}
     </section>
   )
 }
