@@ -196,7 +196,7 @@ export function buildRenderPlan(
   })
 
   return {
-    version: 2,
+    version: 3,
     id: randomUUID(),
     projectId,
     generation,
@@ -230,7 +230,17 @@ export function buildRenderPlan(
     speechCutProtection: settings.speechCutProtection,
     cutSync: settings.cutSync,
     cropFocus: settings.cropFocus,
-    beatAnalysis: null
+    beatAnalysis: null,
+    captionMode: settings.captions.mode,
+    captionTrack: null,
+    subtitleOutput: settings.captions.subtitleOutput,
+    captionStyle: structuredClone(settings.captions.style),
+    captionSafeArea: settings.captions.safeAreaPreset,
+    captionHighlightSpokenWord: settings.captions.highlightSpokenWord,
+    captionHighlightBehavior: settings.captions.highlightBehavior,
+    captionAnimation: settings.captions.animation,
+    transcriptVersion: 0,
+    transcriptEditRevision: 0
   }
 }
 

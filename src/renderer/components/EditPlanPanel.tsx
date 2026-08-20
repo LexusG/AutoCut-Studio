@@ -49,6 +49,7 @@ export function EditPlanPanel(): React.JSX.Element | null {
   const open = useAppStore((state) => state.editPlanOpen)
   const outdated = useAppStore((state) => state.editPlanOutdated)
   const clips = useAppStore((state) => state.clips)
+  const transcripts = useAppStore((state) => state.transcripts)
   const arrangement = useAppStore((state) => state.projectSettings.editing.arrangement)
   const updatePlan = useAppStore((state) => state.updateEditPlan)
   const hide = useAppStore((state) => state.hideEditPlan)
@@ -62,6 +63,12 @@ export function EditPlanPanel(): React.JSX.Element | null {
   const requested = plan.requestedDuration
   const difference = requested == null ? 0 : plan.expectedDuration - requested
   const clipFor = (segment: RenderPlanSegment): MediaClip | undefined => clips.find((clip) => clip.path === segment.sourcePath)
+  const excerpt = (path: string, start: number, end: number): string => {
+    const words = transcripts.find((transcript) => transcript.sourcePath === path)?.words
+      .filter((word) => word.end >= start && word.start <= end)
+      .map((word) => word.text) ?? []
+    return words.join(' ').replace(/\s+([,.!?;:])/g, '$1')
+  }
   const mutate = (operation: (current: RenderPlan) => RenderPlan): void => {
     try {
       setUndoPlan(plan)
@@ -112,6 +119,11 @@ export function EditPlanPanel(): React.JSX.Element | null {
                   <strong title={segment.sourcePath}>{segment.filename}</strong>
                   <span>{segment.start.toFixed(2)}s to {segment.end.toFixed(2)}s <b>{formatDuration(segment.duration)}</b></span>
                   <small>{metadata?.decisionNotes?.at(-1) ?? metadata?.reasons[0] ?? 'Classic automatic selection'}</small>
+                  {excerpt(segment.sourcePath, segment.start, segment.end) && <blockquote>{excerpt(segment.sourcePath, segment.start, segment.end)}</blockquote>}
+                  {metadata?.alternatives?.slice(0, 2).map((alternative, alternativeIndex) => {
+                    const text = excerpt(segment.sourcePath, alternative.start, alternative.end)
+                    return text ? <small className="plan-alternative-transcript" key={alternative.candidateId}>Alternative {alternativeIndex + 1}: {text}</small> : null
+                  })}
                 </div>
                 <div className="plan-signals">
                   {metadata && <span>Score {Math.round(metadata.scores.total * 100)}</span>}

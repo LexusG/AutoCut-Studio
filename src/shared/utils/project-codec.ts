@@ -60,7 +60,21 @@ function hydrateSettings(value: unknown, legacy = false): ProjectSettings {
     ...defaults.personAnalysis,
     ...(raw.personAnalysis ?? {})
   }
-  const settings: ProjectSettings = { ...defaults, ...raw, output, editing, audio, personAnalysis }
+  const transcription = {
+    ...defaults.transcription,
+    ...(raw.transcription ?? {})
+  }
+  const captions = {
+    ...defaults.captions,
+    ...(raw.captions ?? {}),
+    style: {
+      ...defaults.captions.style,
+      ...(raw.captions?.style ?? {})
+    }
+  }
+  const settings: ProjectSettings = {
+    ...defaults, ...raw, output, editing, audio, personAnalysis, transcription, captions
+  }
   if (settings.audio.soundtrack.tracks.length === 0 && settings.audio.backgroundTrack) {
     settings.audio.soundtrack = {
       enabled: true,
@@ -85,13 +99,23 @@ function hydrateRenderPlan(value: unknown): RenderPlan | null {
   if (!Array.isArray(raw.segments) || !raw.output || !raw.audio || typeof raw.id !== 'string') return null
   return {
     ...raw,
-    version: 2,
+    version: 3,
     revision: Number.isInteger(raw.revision) && (raw.revision ?? 0) > 0 ? raw.revision! : 1,
     contentAwareness: raw.contentAwareness ?? 'off',
     speechCutProtection: raw.speechCutProtection ?? 'off',
     cutSync: raw.cutSync ?? 'natural',
     cropFocus: raw.cropFocus ?? 'center',
     beatAnalysis: raw.beatAnalysis ?? null,
+    captionMode: raw.captionMode ?? 'off',
+    captionTrack: raw.captionTrack ?? null,
+    subtitleOutput: raw.subtitleOutput ?? 'none',
+    captionStyle: raw.captionStyle ?? createDefaultProjectSettings().captions.style,
+    captionSafeArea: raw.captionSafeArea ?? 'youtube-standard',
+    captionHighlightSpokenWord: raw.captionHighlightSpokenWord ?? true,
+    captionHighlightBehavior: raw.captionHighlightBehavior ?? 'color',
+    captionAnimation: raw.captionAnimation ?? 'none',
+    transcriptVersion: raw.transcriptVersion ?? 0,
+    transcriptEditRevision: raw.transcriptEditRevision ?? 0,
     audio: { ...raw.audio, duckingTrigger: raw.audio.duckingTrigger ?? 'automatic' },
     segments: raw.segments.map((segment) => ({
       ...segment,
@@ -146,7 +170,7 @@ function hydratePreviewVersion(value: unknown, projectId: string): PreviewVersio
   const raw = value as Partial<PreviewVersion>
   const artifact = raw.artifact
   const plan = artifact?.plan
-  const legacy = (plan as { version?: number } | undefined)?.version !== 2
+  const legacy = (plan as { version?: number } | undefined)?.version !== 3
   if (
     typeof raw.id !== 'string' ||
     !Number.isInteger(raw.versionNumber) ||
@@ -245,26 +269,34 @@ export function parseProjectFile(contents: string): ProjectFile {
   }
   if (!parsed || typeof parsed !== 'object') throw new Error('The project file is invalid.')
   const raw = parsed as Record<string, unknown>
-  if (raw.version !== 2 && raw.version !== 3 && raw.version !== 4 && raw.version !== 5) {
+  if (raw.version !== 2 && raw.version !== 3 && raw.version !== 4 && raw.version !== 5 && raw.version !== 6) {
     throw new Error('This project version is not supported.')
   }
   if (typeof raw.id !== 'string' || !raw.id) throw new Error('The project identifier is missing.')
   if (!Array.isArray(raw.sourcePaths) || !raw.sourcePaths.every((path) => typeof path === 'string')) {
     throw new Error('The project source list is invalid.')
   }
-  const previewHistory = (raw.version === 3 || raw.version === 4 || raw.version === 5) && Array.isArray(raw.previewHistory)
+  const previewHistory = (raw.version === 3 || raw.version === 4 || raw.version === 5 || raw.version === 6) && Array.isArray(raw.previewHistory)
     ? raw.previewHistory
         .map((value) => hydratePreviewVersion(value, raw.id as string))
         .filter((item): item is PreviewVersion => item !== null)
     : []
   return {
-    version: 5,
+    version: 6,
     id: raw.id,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString(),
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
-    settings: hydrateSettings(raw.settings, raw.version !== 5),
+    settings: hydrateSettings(raw.settings, raw.version < 5),
     sourcePaths: raw.sourcePaths,
     previewHistory,
-    editPlan: raw.version === 5 ? hydrateRenderPlan(raw.editPlan) : null
+    editPlan: raw.version === 5 || raw.version === 6 ? hydrateRenderPlan(raw.editPlan) : null,
+    transcriptReferences: raw.version === 6 && Array.isArray(raw.transcriptReferences)
+      ? raw.transcriptReferences as ProjectFile['transcriptReferences'] : [],
+    transcriptCorrections: raw.version === 6 && Array.isArray(raw.transcriptCorrections)
+      ? raw.transcriptCorrections as ProjectFile['transcriptCorrections'] : [],
+    textEdits: raw.version === 6 && Array.isArray(raw.textEdits)
+      ? raw.textEdits as ProjectFile['textEdits'] : [],
+    transcriptEditRevision: raw.version === 6 && Number.isInteger(raw.transcriptEditRevision)
+      ? raw.transcriptEditRevision as number : 0
   }
 }

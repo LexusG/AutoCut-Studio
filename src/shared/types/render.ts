@@ -178,6 +178,7 @@ export interface RenderSettings {
   speechCutProtection: SpeechCutProtection
   cutSync: CutSyncMode
   cropFocus: CropFocusMode
+  captions: import('./transcription').CaptionSettings
 }
 
 export interface CandidateScores {
@@ -253,7 +254,7 @@ export interface RenderPlanOutput {
 }
 
 export interface RenderPlan {
-  version: 2
+  version: 3
   id: string
   projectId: string
   generation: number
@@ -285,6 +286,16 @@ export interface RenderPlan {
   cutSync: CutSyncMode
   cropFocus: CropFocusMode
   beatAnalysis: BeatAnalysisResult | null
+  captionMode: import('./transcription').CaptionMode
+  captionTrack: import('./transcription').CaptionTrack | null
+  subtitleOutput: import('./transcription').SubtitleOutput
+  captionStyle: import('./transcription').CaptionStyle
+  captionSafeArea: import('./transcription').CaptionSafeAreaPreset
+  captionHighlightSpokenWord: boolean
+  captionHighlightBehavior: import('./transcription').CaptionHighlight
+  captionAnimation: import('./transcription').CaptionAnimation
+  transcriptVersion: number
+  transcriptEditRevision: number
 }
 
 export interface EditPlanRequest {
@@ -439,7 +450,19 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
   contentAwareness: 'balanced',
   speechCutProtection: 'normal',
   cutSync: 'natural',
-  cropFocus: 'center'
+  cropFocus: 'center',
+  captions: {
+    mode: 'off',
+    subtitleOutput: 'none',
+    style: {
+      preset: 'clean', fontFamily: 'DejaVu Sans', fontSize: 48, fontWeight: 600,
+      textColor: '#ffffff', highlightColor: '#facc15', backgroundEnabled: true,
+      backgroundOpacity: 0.58, outline: 2, shadow: 1, alignment: 'center',
+      position: 'bottom', verticalOffset: 8, maximumWidth: 84, lineSpacing: 1
+    },
+    safeAreaPreset: 'youtube-standard', safeAreaVisible: false,
+    highlightSpokenWord: true, highlightBehavior: 'color', animation: 'none'
+  }
 }
 
 // Compatibility alias for Phase 1/2 callers.

@@ -11,7 +11,12 @@ import {
   type PreviewRenderRequest,
   type ProjectFile,
   type RenderPlan,
-  type RenderSettings
+  type RenderSettings,
+  type Transcript,
+  type TranscriptReference,
+  type TranscriptionRequest,
+  type CaptionBuildRequest,
+  type SubtitleExportRequest
 } from '@shared/types'
 import { parseProjectFile } from '@shared/utils/project-codec'
 import { sanitizeFilenamePart } from '@shared/utils/project-settings'
@@ -40,6 +45,16 @@ import {
   resolvePersonAnalysisResponse
 } from '../services/video/smart/optional-ml'
 import { getPersonDetectionStatus } from '../services/video/smart/person-model'
+import {
+  getTranscriptionStatus,
+  installTranscriptionModel,
+  removeTranscriptionModel
+} from '../services/transcription/model-manager'
+import { cancelTranscription, transcribeProject } from '../services/transcription/job-manager'
+import { loadProjectTranscripts, updateTranscript } from '../services/transcription/transcript-repository'
+import { detectFillerWords } from '../services/transcription/filler-detection'
+import { buildCaptionTrack } from '../services/captions/caption-track-builder'
+import { writeSubtitleFile } from '../services/captions/subtitle-exporter'
 
 const MAX_FILES_PER_IMPORT = 250
 
@@ -58,6 +73,7 @@ function isRenderSettings(value: unknown): value is RenderSettings {
   const settings = value as Partial<RenderSettings>
   const audio = settings.audio
   const preferences = settings.smartPreferences
+  const captions = settings.captions
   const validSoundtrackTracks =
     Array.isArray(audio?.soundtrackTracks) &&
     audio.soundtrackTracks.length <= 100 &&
@@ -111,6 +127,12 @@ function isRenderSettings(value: unknown): value is RenderSettings {
     ['off', 'normal', 'strong'].includes(settings.speechCutProtection ?? '') &&
     ['natural', 'beat-assisted', 'beat-strong'].includes(settings.cutSync ?? '') &&
     ['center', 'smart-subject'].includes(settings.cropFocus ?? '') &&
+    Boolean(captions) &&
+    ['off', 'standard', 'dynamic'].includes(captions?.mode ?? '') &&
+    ['none', 'burned-in', 'file-only', 'burned-in-and-file'].includes(captions?.subtitleOutput ?? '') &&
+    Boolean(captions?.style) &&
+    typeof captions?.style.fontSize === 'number' && captions.style.fontSize >= 8 && captions.style.fontSize <= 240 &&
+    typeof captions?.style.textColor === 'string' &&
     typeof settings.useEveryClip === 'boolean' &&
     (settings.targetDuration == null ||
       (typeof settings.targetDuration === 'number' && settings.targetDuration > 0)) &&
@@ -208,7 +230,7 @@ function isRenderPlan(value: unknown): value is RenderPlan {
   if (!value || typeof value !== 'object') return false
   const plan = value as Partial<RenderPlan>
   return (
-    plan.version === 2 &&
+    plan.version === 3 &&
     typeof plan.id === 'string' &&
     typeof plan.projectId === 'string' &&
     ['classic', 'smart'].includes(plan.selectionMode ?? '') &&
@@ -220,6 +242,14 @@ function isRenderPlan(value: unknown): value is RenderPlan {
     ['off', 'normal', 'strong'].includes(plan.speechCutProtection ?? '') &&
     ['natural', 'beat-assisted', 'beat-strong'].includes(plan.cutSync ?? '') &&
     ['center', 'smart-subject'].includes(plan.cropFocus ?? '') &&
+    ['off', 'standard', 'dynamic'].includes(plan.captionMode ?? '') &&
+    ['none', 'burned-in', 'file-only', 'burned-in-and-file'].includes(plan.subtitleOutput ?? '') &&
+    Boolean(plan.captionStyle) &&
+    typeof plan.captionHighlightSpokenWord === 'boolean' &&
+    ['bold', 'scale', 'color', 'background'].includes(plan.captionHighlightBehavior ?? '') &&
+    ['none', 'fade', 'pop'].includes(plan.captionAnimation ?? '') &&
+    Number.isInteger(plan.transcriptVersion) &&
+    Number.isInteger(plan.transcriptEditRevision) &&
     Number.isInteger(plan.previewVersion) &&
     (plan.previewVersion ?? 0) > 0 &&
     Number.isInteger(plan.revision) &&
@@ -440,6 +470,101 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.previewStorageStats, () => getPreviewStorageStats())
 
   ipcMain.handle(IPC_CHANNELS.personDetectionStatus, () => getPersonDetectionStatus())
+
+  ipcMain.handle(IPC_CHANNELS.transcriptionStatus, () => getTranscriptionStatus())
+
+  ipcMain.handle(IPC_CHANNELS.transcriptionInstallModel, (event, model: unknown) => {
+    if (typeof model !== 'string') throw new Error('The model name is invalid.')
+    return installTranscriptionModel(model, (percent) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(IPC_CHANNELS.transcriptionModelProgress, { model, percent })
+      }
+    })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.transcriptionRemoveModel, (_event, model: unknown) => {
+    if (typeof model !== 'string') throw new Error('The model name is invalid.')
+    return removeTranscriptionModel(model)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.transcriptionRun, (event, value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The transcription request is invalid.')
+    const request = value as TranscriptionRequest
+    validateRenderId(request.jobId)
+    validateStorageId(request.projectId, 'Project')
+    if (!Array.isArray(request.sources) || request.sources.length === 0 || request.sources.length > MAX_FILES_PER_IMPORT) {
+      throw new Error('Choose one or more project clips to transcribe.')
+    }
+    for (const source of request.sources) {
+      validateStorageId(source.clipId, 'Clip')
+      validateLocalPath(source.path, 'Source')
+      if (typeof source.duration !== 'number' || source.duration <= 0 || typeof source.hasAudio !== 'boolean') {
+        throw new Error('A transcription source is invalid.')
+      }
+    }
+    if (!['fast', 'balanced', 'accurate'].includes(request.settings?.quality) ||
+      !['auto', 'english', 'multilingual'].includes(request.settings?.language)) {
+      throw new Error('The transcription settings are invalid.')
+    }
+    return transcribeProject(request, (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.transcriptionProgress, progress)
+    })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.transcriptionCancel, (_event, jobId: unknown) => {
+    if (typeof jobId !== 'string') throw new Error('The transcription job identifier is invalid.')
+    return cancelTranscription(jobId)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.transcriptionLoad, (_event, projectId: unknown, references: unknown) => {
+    const id = validateStorageId(projectId, 'Project')
+    if (!Array.isArray(references)) throw new Error('Transcript references are invalid.')
+    return loadProjectTranscripts(id, references as TranscriptReference[])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.transcriptionUpdate, (_event, value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The transcript is invalid.')
+    const transcript = value as Transcript
+    validateStorageId(transcript.projectId, 'Project')
+    validateStorageId(transcript.sourceClipId, 'Clip')
+    if (transcript.version !== 1 || !Array.isArray(transcript.words) || !Array.isArray(transcript.segments)) {
+      throw new Error('The transcript data is invalid.')
+    }
+    return updateTranscript(transcript)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.transcriptionDetectFillers, async (_event, value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The transcript is invalid.')
+    const transcript = detectFillerWords(value as Transcript)
+    await updateTranscript(transcript)
+    return transcript
+  })
+
+  ipcMain.handle(IPC_CHANNELS.captionBuild, (_event, value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The caption request is invalid.')
+    const request = value as CaptionBuildRequest
+    if (!isRenderPlan(request.plan) || !Array.isArray(request.transcripts)) {
+      throw new Error('Create an Edit Plan and transcripts before generating captions.')
+    }
+    return buildCaptionTrack(request)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.subtitleExport, async (_event, value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The subtitle export request is invalid.')
+    const request = value as SubtitleExportRequest
+    if (!['srt', 'vtt'].includes(request.format) || !request.track || !Array.isArray(request.track.chunks)) {
+      throw new Error('The subtitle export request is invalid.')
+    }
+    const extension = request.format
+    const result = await dialog.showSaveDialog({
+      title: `Export ${request.format.toUpperCase()} subtitles`,
+      defaultPath: `${sanitizeFilenamePart(request.projectName)}.${extension}`,
+      filters: [{ name: `${request.format.toUpperCase()} subtitles`, extensions: [extension] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    await writeSubtitleFile(result.filePath, request.format, request.track)
+    return result.filePath
+  })
 
   ipcMain.on(IPC_CHANNELS.personAnalysisResponse, (event, value: unknown) => {
     if (!value || typeof value !== 'object') return

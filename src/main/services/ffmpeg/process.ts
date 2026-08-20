@@ -20,6 +20,7 @@ export interface ProcessOutput {
 export interface ProcessOptions {
   signal?: AbortSignal
   onStdout?: (text: string) => void
+  onStderr?: (text: string) => void
 }
 
 export function runProcess(
@@ -57,7 +58,10 @@ export function runProcess(
       capture(stdout, chunk)
       options.onStdout?.(chunk.toString('utf8'))
     })
-    child.stderr.on('data', (chunk: Buffer) => capture(stderr, chunk))
+    child.stderr.on('data', (chunk: Buffer) => {
+      capture(stderr, chunk)
+      options.onStderr?.(chunk.toString('utf8'))
+    })
 
     child.once('error', (error) => {
       reject(new ProcessExecutionError(`Could not start ${command}.`, error.message))
