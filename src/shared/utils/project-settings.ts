@@ -146,6 +146,16 @@ export function createDefaultProjectSettings(): ProjectSettings {
       highlightSpokenWord: true,
       highlightBehavior: 'color',
       animation: 'none'
+    },
+    semantic: {
+      enabled: true,
+      provider: 'minilm-transformers-js',
+      model: 'Xenova/all-MiniLM-L6-v2',
+      modelVersion: 'main-q8',
+      analyzerVersion: 'phase8-semantic-v1',
+      languageSupport: 'english',
+      editGoal: '',
+      editGoalStrength: 'balanced'
     }
   }
 }
@@ -312,7 +322,8 @@ export function toRenderSettings(settings: ProjectSettings): RenderSettings {
     speechCutProtection: settings.editing.speechCutProtection,
     cutSync: settings.editing.cutSync,
     cropFocus: settings.output.cropFocus,
-    captions: structuredClone(settings.captions)
+    captions: structuredClone(settings.captions),
+    semantic: structuredClone(settings.semantic)
   }
 }
 
@@ -341,11 +352,14 @@ export function createProjectFile(
   editPlan: ProjectFile['editPlan'] = null,
   phase7: Pick<ProjectFile, 'transcriptReferences' | 'transcriptCorrections' | 'textEdits' | 'transcriptEditRevision'> = {
     transcriptReferences: [], transcriptCorrections: [], textEdits: [], transcriptEditRevision: 0
+  },
+  phase8: Pick<ProjectFile, 'semanticAnalysis' | 'topics' | 'semanticHints' | 'highlightCandidates' | 'outputVariants'> = {
+    semanticAnalysis: null, topics: [], semanticHints: [], highlightCandidates: [], outputVariants: []
   }
 ): ProjectFile {
   const now = new Date().toISOString()
   return {
-    version: 6,
+    version: 7,
     id: existing?.id ?? crypto.randomUUID(),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
@@ -356,7 +370,12 @@ export function createProjectFile(
     transcriptReferences: structuredClone(phase7.transcriptReferences),
     transcriptCorrections: structuredClone(phase7.transcriptCorrections),
     textEdits: structuredClone(phase7.textEdits),
-    transcriptEditRevision: phase7.transcriptEditRevision
+    transcriptEditRevision: phase7.transcriptEditRevision,
+    semanticAnalysis: structuredClone(phase8.semanticAnalysis),
+    topics: structuredClone(phase8.topics),
+    semanticHints: structuredClone(phase8.semanticHints),
+    highlightCandidates: structuredClone(phase8.highlightCandidates),
+    outputVariants: structuredClone(phase8.outputVariants)
   }
 }
 

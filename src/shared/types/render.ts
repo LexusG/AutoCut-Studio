@@ -179,6 +179,7 @@ export interface RenderSettings {
   cutSync: CutSyncMode
   cropFocus: CropFocusMode
   captions: import('./transcription').CaptionSettings
+  semantic: import('./semantic').SemanticProjectSettings
 }
 
 export interface CandidateScores {
@@ -194,6 +195,7 @@ export interface CandidateScores {
   speechActivity: number
   speechBoundaryQuality: number
   speechCompleteness: number
+  semanticRelevance: number
   total: number
 }
 
@@ -204,6 +206,9 @@ export interface AlternativeCandidate {
   scores: CandidateScores
   reasons: string[]
   personAnalysis?: PersonAnalysisSummary
+  transcriptExcerpt?: string
+  semanticRelevance?: number
+  speechPresent?: boolean
 }
 
 export interface SelectedCandidateMetadata {
@@ -254,7 +259,7 @@ export interface RenderPlanOutput {
 }
 
 export interface RenderPlan {
-  version: 3
+  version: 4
   id: string
   projectId: string
   generation: number
@@ -296,6 +301,16 @@ export interface RenderPlan {
   captionAnimation: import('./transcription').CaptionAnimation
   transcriptVersion: number
   transcriptEditRevision: number
+  editGoal: string
+  editGoalStrength: import('./semantic').EditGoalStrength
+  semanticModelVersion: string | null
+  semanticAnalysisVersion: string | null
+  topicSelections: Array<{ topicId: string; importance: import('./semantic').TopicImportance }>
+  semanticHints: import('./semantic').SemanticHintRange[]
+  variantId: string | null
+  generationMode: import('./semantic').ProjectGenerationMode
+  highlightCandidateIds: string[]
+  topicCoverageEnabled: boolean
 }
 
 export interface EditPlanRequest {
@@ -306,6 +321,10 @@ export interface EditPlanRequest {
   settingsFingerprint: string
   settings: RenderSettings
   currentPlan: RenderPlan | null
+  semanticHints?: import('./semantic').SemanticHintRange[]
+  topicSelections?: Array<{ topicId: string; importance: import('./semantic').TopicImportance }>
+  variantId?: string | null
+  generationMode?: import('./semantic').ProjectGenerationMode
 }
 
 export type EditPlanOutcome =
@@ -462,6 +481,16 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
     },
     safeAreaPreset: 'youtube-standard', safeAreaVisible: false,
     highlightSpokenWord: true, highlightBehavior: 'color', animation: 'none'
+  },
+  semantic: {
+    enabled: true,
+    provider: 'minilm-transformers-js',
+    model: 'Xenova/all-MiniLM-L6-v2',
+    modelVersion: 'main-q8',
+    analyzerVersion: 'phase8-semantic-v1',
+    languageSupport: 'english',
+    editGoal: '',
+    editGoalStrength: 'balanced'
   }
 }
 

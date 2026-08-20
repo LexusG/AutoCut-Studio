@@ -196,7 +196,7 @@ export function buildRenderPlan(
   })
 
   return {
-    version: 3,
+    version: 4,
     id: randomUUID(),
     projectId,
     generation,
@@ -240,7 +240,17 @@ export function buildRenderPlan(
     captionHighlightBehavior: settings.captions.highlightBehavior,
     captionAnimation: settings.captions.animation,
     transcriptVersion: 0,
-    transcriptEditRevision: 0
+    transcriptEditRevision: 0,
+    editGoal: settings.semantic.editGoal,
+    editGoalStrength: settings.semantic.editGoalStrength,
+    semanticModelVersion: null,
+    semanticAnalysisVersion: null,
+    topicSelections: [],
+    semanticHints: [],
+    variantId: null,
+    generationMode: 'full-edit',
+    highlightCandidateIds: [],
+    topicCoverageEnabled: true
   }
 }
 

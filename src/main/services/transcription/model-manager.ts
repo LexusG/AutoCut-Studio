@@ -1,7 +1,4 @@
-import { createWriteStream } from 'node:fs'
-import { access, mkdir, rename, rm, stat } from 'node:fs/promises'
-import { Readable } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
+import { access, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import type {
@@ -11,6 +8,7 @@ import type {
   TranscriptionStatus
 } from '@shared/types'
 import { applicationStoragePaths } from '../filesystem/application-storage'
+import { downloadManagedModelFile } from '../models/managed-model-downloader'
 
 const MODEL_SPECS = {
   tiny: { bytes: 75_000_000, purpose: 'Fast multilingual transcription' },
@@ -90,30 +88,22 @@ export async function installTranscriptionModel(
   if (downloadProgress.has(name)) throw new Error('That model is already downloading.')
   const destination = whisperModelPath(name)
   if (await exists(destination)) return infoFor(name as keyof typeof MODEL_SPECS)
-  const temporary = `${destination}.download`
-  await mkdir(dirname(destination), { recursive: true })
   downloadProgress.set(name, 0)
   try {
-    const response = await fetch(`https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-${name}.bin?download=true`)
-    if (!response.ok || !response.body) throw new Error(`Model download failed with HTTP ${response.status}.`)
-    const total = Number(response.headers.get('content-length')) || MODEL_SPECS[name as keyof typeof MODEL_SPECS].bytes
-    let received = 0
-    const source = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream)
-    source.on('data', (chunk: Buffer) => {
-      received += chunk.byteLength
+    await downloadManagedModelFile(
+      `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-${name}.bin?download=true`,
+      destination,
+      MODEL_SPECS[name as keyof typeof MODEL_SPECS].bytes,
+      (received, total) => {
       const percent = Math.min(99.9, received / total * 100)
       downloadProgress.set(name, percent)
       onProgress?.(percent)
-    })
-    await pipeline(source, createWriteStream(temporary, { flags: 'wx' }))
-    const downloaded = await stat(temporary)
-    if (downloaded.size < 1_000_000) throw new Error('The downloaded model file is incomplete.')
-    await rename(temporary, destination)
+      }
+    )
     onProgress?.(100)
     return infoFor(name as keyof typeof MODEL_SPECS)
   } finally {
     downloadProgress.delete(name)
-    await rm(temporary, { force: true })
   }
 }
 

@@ -30,6 +30,7 @@ export interface RawCandidateMetrics {
   speechActivity?: number
   speechBoundaryQuality?: number
   speechCompleteness?: number
+  semanticRelevance?: number
 }
 
 const clamp = (value: number): number => Math.max(0, Math.min(1, value))
@@ -41,6 +42,7 @@ export function scoreCandidate(
   const speechActivity = metrics.speechActivity ?? 0
   const speechBoundaryQuality = metrics.speechBoundaryQuality ?? 0
   const speechCompleteness = metrics.speechCompleteness ?? 0
+  const semanticRelevance = metrics.semanticRelevance ?? 0
   const weights = {
     ...BASE_WEIGHTS,
     sharpness: BASE_WEIGHTS.sharpness * (preferences.preferClearFootage ? 1.45 : 1),
@@ -73,7 +75,7 @@ export function scoreCandidate(
       metrics.blackFramePenalty * weights.blackFramePenalty -
       metrics.duplicatePenalty * weights.duplicatePenalty
   )
-  return { ...metrics, speechActivity, speechBoundaryQuality, speechCompleteness, total }
+  return { ...metrics, speechActivity, speechBoundaryQuality, speechCompleteness, semanticRelevance, total }
 }
 
 export function analysisReasons(scores: CandidateScores, personDetected = false): string[] {

@@ -35,11 +35,17 @@ export function useProjectFiles(): ProjectFileActions {
   const transcriptCorrections = useAppStore((state) => state.transcriptCorrections)
   const textEdits = useAppStore((state) => state.textEdits)
   const transcriptEditRevision = useAppStore((state) => state.transcriptEditRevision)
+  const semanticAnalysisReference = useAppStore((state) => state.semanticAnalysisReference)
+  const topics = useAppStore((state) => state.topics)
+  const semanticHints = useAppStore((state) => state.semanticHints)
+  const highlightCandidates = useAppStore((state) => state.highlightCandidates)
+  const outputVariants = useAppStore((state) => state.outputVariants)
   const markSaved = useAppStore((state) => state.markProjectSaved)
   const loadProject = useAppStore((state) => state.loadProject)
   const setRecentProjects = useAppStore((state) => state.setRecentProjects)
   const setImporting = useAppStore((state) => state.setImporting)
   const setTranscripts = useAppStore((state) => state.setTranscripts)
+  const setLoadedSemanticAnalysis = useAppStore((state) => state.setLoadedSemanticAnalysis)
 
   const clearFeedback = useCallback(() => {
     setMessage(null)
@@ -67,13 +73,14 @@ export function useProjectFiles(): ProjectFileActions {
           : { clips: [], failures: [] }
         loadProject(loaded.project, loaded.filePath, imported.clips, imported.failures)
         setTranscripts(await window.autoCut.loadTranscripts(loaded.project.id, loaded.project.transcriptReferences))
+        setLoadedSemanticAnalysis(await window.autoCut.loadSemanticAnalysis(loaded.project.id, loaded.project.semanticAnalysis))
         setMessage(`Opened ${loaded.project.settings.name}`)
         await refreshRecent()
       } finally {
         setImporting(false)
       }
     },
-    [loadProject, refreshRecent, setImporting, setTranscripts]
+    [loadProject, refreshRecent, setImporting, setLoadedSemanticAnalysis, setTranscripts]
   )
 
   const chooseAndOpen = useCallback(async (): Promise<boolean> => {
@@ -127,7 +134,8 @@ export function useProjectFiles(): ProjectFileActions {
         { id: projectId, createdAt: projectCreatedAt },
         previewHistory,
         editPlan,
-        { transcriptReferences, transcriptCorrections, textEdits, transcriptEditRevision }
+        { transcriptReferences, transcriptCorrections, textEdits, transcriptEditRevision },
+        { semanticAnalysis: semanticAnalysisReference, topics, semanticHints, highlightCandidates, outputVariants }
       )
       const saved = await window.autoCut.saveProject(project, projectFilePath)
       if (!saved) return false
@@ -141,7 +149,7 @@ export function useProjectFiles(): ProjectFileActions {
     } finally {
       setBusy(false)
     }
-  }, [clearFeedback, clips, editPlan, markSaved, previewHistory, projectCreatedAt, projectFilePath, projectId, refreshRecent, settings, textEdits, transcriptCorrections, transcriptEditRevision, transcriptReferences])
+  }, [clearFeedback, clips, editPlan, highlightCandidates, markSaved, outputVariants, previewHistory, projectCreatedAt, projectFilePath, projectId, refreshRecent, semanticAnalysisReference, semanticHints, settings, textEdits, topics, transcriptCorrections, transcriptEditRevision, transcriptReferences])
 
   const removeRecent = useCallback(
     async (path: string): Promise<void> => {

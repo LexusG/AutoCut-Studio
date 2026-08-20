@@ -1,6 +1,6 @@
 # AutoCut Studio
 
-AutoCut Studio is a local-first Linux desktop application that automatically plans, previews, and exports an edited video from local source clips. Phase 5 adds offline MediaPipe person-presence analysis, accurate final-program loudness normalization, and application-managed persistent previews to the existing FFmpeg render pipeline.
+AutoCut Studio is a local-first Linux desktop application that automatically plans, previews, and exports edited videos from local source clips. Phase 8 adds offline transcript semantics, topic and highlight discovery, goal-directed editing, and independently planned social output variants to the existing FFmpeg pipeline.
 
 All footage remains on the local computer. Electron owns filesystem access and FFmpeg execution; the React renderer only communicates through a small, typed preload API.
 
@@ -31,13 +31,21 @@ All footage remains on the local computer. Electron owns filesystem access and F
 - Bundled MediaPipe Pose Landmarker Lite model with checksum/version metadata and no runtime network requirement
 - Dedicated MediaPipe worker, distributed 3/6/10-frame sampling, presence-ratio scoring, cancellation, diagnostics, and heuristic fallback
 - Prefer People weighting that rewards consistent subject presence without overriding severe blur, darkness, shake, or exposure problems
+- Local Whisper transcription with word timestamps, corrections, exact search, captions, SRT/VTT export, and text-based media edits
+- Explicitly installed local MiniLM sentence embeddings through Transformers.js and ONNX, with offline-only inference after installation
+- Revision-aware semantic chunk and embedding caches that reuse unchanged transcript ranges
+- Exact and semantic transcript search, Edit Goal strength, prioritized/avoided ranges, and semantic Smart Selection signals
+- Ordered topic detection, editable chapter markers, topic importance, plain-text chapter export, and similar-take review
+- Explainable multi-signal highlight candidates with semantic deduplication, novelty, source/topic diversity, alternatives, and custom-duration highlight reels
+- Instagram Reel, Story, YouTube Short, LinkedIn Portrait, and custom output variants with independent frozen RenderPlans, captions, smart crops, previews, approvals, and exports
+- Sequential batch preview/export queues with per-variant progress and cancellation, sharing source analysis across variants
 - Reusable duration allocation with transition-overlap accounting and source-capacity redistribution
 - Minimum feasible duration recovery when Use Every Clip conflicts with a short target
 - MP3, WAV, AAC, M4A, OGG, and FLAC background-audio import and FFprobe metadata
 - Ordered multi-track soundtrack with local preview, per-track volume/offset/fades, enable, reorder, and removal controls
 - Soundtrack looping, track crossfades, master volume, and source-audio ducking
 - Original-clip audio preservation, volume, and normalization configuration
-- Version 4 JSON project save/open with Phase 2/3/4 migration, stable preview storage references, complete settings restoration, and recent projects
+- Version 7 JSON project save/open with migrations from earlier schemas, semantic metadata references, independent variant preview histories, complete settings restoration, and recent projects
 - Missing background-audio recovery through Locate File or Remove Audio
 - Automatic editable output filenames based on the selected platform format
 - Mixed-orientation, mixed-frame-rate, pixel-format, aspect-ratio, and audio-stream normalization
@@ -103,7 +111,7 @@ npm run preview
 
 The smoke test requires FFmpeg and a graphical Linux session or `xvfb-run`. In a headless shell, run `xvfb-run -a npm run test:smoke`.
 
-The smoke workflow creates five real mixed-orientation video fixtures, including two person-containing videos, plus two music tracks. It verifies MediaPipe inference, Prefer People, cache reuse, blurred Fit, accurate source/final normalization, loudness targets, persistent preview promotion, application restart/reopen, safe version deletion, final export, and FFprobe metadata.
+The smoke workflows cover the Phase 6 and 7 editing paths plus an eight-clip Phase 8 project with speech, silent footage, multiple people and topics, music, captions, semantic analysis, highlights, three portrait variants, sequential previews, approvals, exports, FFprobe validation, and restart persistence.
 
 AppImage packaging will be configured in the later packaging phase.
 
@@ -123,7 +131,9 @@ src/
       ffmpeg/            Binary detection and child-process execution
       filesystem/        Guarded media/model protocols and centralized storage paths
       audio/             FFprobe background-audio import
+      models/            Shared managed model download support
       projects/          Atomic project and recent-project persistence
+      semantic/          MiniLM provider, chunk/cache storage, search, topics, highlights, and job scheduling
       video/             Planning, Smart analysis, audio, execution, preview, logs, and verification
   preload/               Narrow contextBridge API
   renderer/
@@ -149,6 +159,7 @@ tests/                   Unit tests
 - Thumbnails are cached under Electron's application data directory.
 - Disposable render intermediates are created under the system temp directory and never beside source media.
 - Successful previews live under Electron `userData/storage/projects/<project>/previews/<preview>/` with video, thumbnail, log, and metadata.
+- Installed semantic model files live under `userData/storage/models/semantic/all-MiniLM-L6-v2/`; per-project embedding caches live under `userData/storage/projects/<project>/semantic/` and are not copied into project JSON.
 - Up to 10 unprotected preview artifacts are retained per project; pinned, approved, current, watched, and exporting previews are protected.
 
 ## Troubleshooting
@@ -160,6 +171,10 @@ Install the distribution package shown above and restart the app. AutoCut Studio
 ### A clip does not import
 
 Expand the import error in the Media panel. Confirm the source still exists, its extension is supported, and FFprobe can read a video stream from it.
+
+### Semantic analysis is unavailable
+
+Open **Advanced Smart Settings** or the **Semantic** content tab and install the MiniLM model. Installation requires a network connection once; analysis and search run locally afterward. Exact transcript search and existing Smart Selection remain available if the model is missing or fails.
 
 ### The window does not launch on Linux
 
@@ -173,10 +188,10 @@ Fast preview may reduce dimensions and encoding quality, but it keeps the same c
 
 Any render-affecting edit marks existing versions as **Settings Changed** and blocks approval until regeneration. Old preview files remain watchable from Preview History while available.
 
-## Phase 5 boundaries
+## Phase 8 boundaries
 
-Person presence is a positive pose-based signal, not face recognition or identity analysis. Very small, occluded, partially framed, or unusual poses may be missed, so absence never creates a severe penalty. Scene timing remains lightweight, audio activity uses energy rather than speech recognition, and camera movement is estimated rather than stabilized. Preview storage reports total usage and supports safe retention cleanup; a configurable global byte quota is deferred.
+MiniLM measures semantic similarity; it does not generate summaries, titles, chapters, or spoken content. The default model is English-focused, and the UI warns that other languages may have weaker results. Topics use transcript boundaries and representative source text rather than fabricated names. Semantic relevance can rerank usable footage, but hard constraints, manual locks, and severe quality penalties still win.
 
 ## Future work
 
-Richer scene-boundary placement, configurable cache/storage byte quotas, speech transcription, captions, beat-synchronized editing, subject-aware reframing, advanced waveform editing, nonlinear timelines, and Linux packaging remain future work.
+Multilingual embedding providers, broader coordination of every analysis subsystem under the central scheduler, explicit model unloading controls, configurable cache/storage byte quotas, advanced waveform editing, nonlinear timelines, and Linux packaging remain future work.

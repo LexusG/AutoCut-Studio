@@ -121,12 +121,13 @@ export function EditPlanPanel(): React.JSX.Element | null {
                   <small>{metadata?.decisionNotes?.at(-1) ?? metadata?.reasons[0] ?? 'Classic automatic selection'}</small>
                   {excerpt(segment.sourcePath, segment.start, segment.end) && <blockquote>{excerpt(segment.sourcePath, segment.start, segment.end)}</blockquote>}
                   {metadata?.alternatives?.slice(0, 2).map((alternative, alternativeIndex) => {
-                    const text = excerpt(segment.sourcePath, alternative.start, alternative.end)
-                    return text ? <small className="plan-alternative-transcript" key={alternative.candidateId}>Alternative {alternativeIndex + 1}: {text}</small> : null
+                    const text = alternative.transcriptExcerpt ?? excerpt(segment.sourcePath, alternative.start, alternative.end)
+                    return text ? <small className="plan-alternative-transcript" key={alternative.candidateId}>Alternative {alternativeIndex + 1}: {text}{alternative.semanticRelevance != null ? ` · Goal ${Math.round(alternative.semanticRelevance * 100)}%` : ''} · Smart {Math.round(alternative.scores.total * 100)}% · {alternative.speechPresent ? 'Speech' : 'No speech'} · Visual {Math.round(((alternative.scores.sharpness + alternative.scores.exposure + alternative.scores.stability) / 3) * 100)}%</small> : null
                   })}
                 </div>
                 <div className="plan-signals">
                   {metadata && <span>Score {Math.round(metadata.scores.total * 100)}</span>}
+                  {(metadata?.scores.semanticRelevance ?? 0) > 0 && <span>Goal {Math.round(metadata!.scores.semanticRelevance * 100)}%</span>}
                   {speech && <span title="Speech activity detected"><Volume2 size={13} /> Speech</span>}
                   {person && <span title="Person detected"><UserRound size={13} /> Person</span>}
                   {segment.selectionSource === 'manual' && <span>Manually adjusted</span>}

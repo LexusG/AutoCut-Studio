@@ -30,8 +30,18 @@ import type {
   TranscriptionProgress,
   TranscriptionResult,
   TranscriptionStatus,
-  TranscriptionSettings
+  TranscriptionSettings,
+  SemanticModelStatus,
+  SemanticProjectAnalysis,
+  SemanticAnalysisReference,
+  SemanticAnalysisProgress,
+  SemanticHintRange,
+  TopicSegment,
+  HighlightCandidate,
+  OutputVariant,
+  SemanticProjectSettings
 } from '@shared/types'
+import { updateOutputVariant as reviseOutputVariant } from '@shared/utils/output-variants'
 import {
   applyPlatformPreset,
   createDefaultProjectSettings,
@@ -84,6 +94,16 @@ interface AppState {
   transcriptionProgress: TranscriptionProgress | null
   activeTranscriptionJobId: string | null
   transcriptionError: string | null
+  semanticModelStatus: SemanticModelStatus | null
+  semanticAnalysis: SemanticProjectAnalysis | null
+  semanticAnalysisReference: SemanticAnalysisReference | null
+  semanticProgress: SemanticAnalysisProgress | null
+  activeSemanticJobId: string | null
+  semanticError: string | null
+  topics: TopicSegment[]
+  semanticHints: SemanticHintRange[]
+  highlightCandidates: HighlightCandidate[]
+  outputVariants: OutputVariant[]
   setEditPlan: (plan: RenderPlan) => void
   updateEditPlan: (updater: (plan: RenderPlan) => RenderPlan) => void
   showEditPlan: () => void
@@ -140,6 +160,22 @@ interface AppState {
   setCaptionTrack: (track: CaptionTrack | null) => void
   addTextEdit: (edit: TranscriptTextEdit) => void
   restoreTextEdit: (id: string) => void
+  updateSemanticSettings: (patch: Partial<SemanticProjectSettings>) => void
+  setSemanticModelStatus: (status: SemanticModelStatus | null) => void
+  beginSemanticAnalysis: (jobId: string) => void
+  setSemanticProgress: (progress: SemanticAnalysisProgress) => void
+  completeSemanticAnalysis: (analysis: SemanticProjectAnalysis, reference: SemanticAnalysisReference) => void
+  setLoadedSemanticAnalysis: (analysis: SemanticProjectAnalysis | null) => void
+  failSemanticAnalysis: (message: string) => void
+  updateTopic: (id: string, patch: Partial<TopicSegment>) => void
+  addSemanticHint: (hint: SemanticHintRange) => void
+  removeSemanticHint: (id: string) => void
+  setHighlightCandidates: (candidates: HighlightCandidate[]) => void
+  updateHighlightCandidate: (id: string, patch: Partial<HighlightCandidate>) => void
+  setOutputVariants: (variants: OutputVariant[]) => void
+  addOutputVariants: (variants: OutputVariant[]) => void
+  updateOutputVariant: (id: string, patch: Partial<OutputVariant>) => void
+  removeOutputVariant: (id: string) => void
 }
 
 function freshProjectIdentity(): { projectId: string; projectCreatedAt: string } {
@@ -187,6 +223,16 @@ export const useAppStore = create<AppState>((set) => ({
   transcriptionProgress: null,
   activeTranscriptionJobId: null,
   transcriptionError: null,
+  semanticModelStatus: null,
+  semanticAnalysis: null,
+  semanticAnalysisReference: null,
+  semanticProgress: null,
+  activeSemanticJobId: null,
+  semanticError: null,
+  topics: [],
+  semanticHints: [],
+  highlightCandidates: [],
+  outputVariants: [],
   startProject: () => set({
     screen: 'editor',
     projectSettings: createDefaultProjectSettings(),
@@ -218,7 +264,16 @@ export const useAppStore = create<AppState>((set) => ({
     transcriptEditRevision: 0,
     transcriptionProgress: null,
     activeTranscriptionJobId: null,
-    transcriptionError: null
+    transcriptionError: null,
+    semanticAnalysis: null,
+    semanticAnalysisReference: null,
+    semanticProgress: null,
+    activeSemanticJobId: null,
+    semanticError: null,
+    topics: [],
+    semanticHints: [],
+    highlightCandidates: [],
+    outputVariants: []
   }),
   loadProject: (project, projectFilePath, clips, importFailures) => {
     const latest = [...project.previewHistory]
@@ -256,7 +311,16 @@ export const useAppStore = create<AppState>((set) => ({
     transcriptEditRevision: project.transcriptEditRevision,
     transcriptionProgress: null,
     activeTranscriptionJobId: null,
-    transcriptionError: null
+    transcriptionError: null,
+    semanticAnalysis: null,
+    semanticAnalysisReference: project.semanticAnalysis,
+    semanticProgress: null,
+    activeSemanticJobId: null,
+    semanticError: null,
+    topics: project.topics,
+    semanticHints: project.semanticHints,
+    highlightCandidates: project.highlightCandidates,
+    outputVariants: project.outputVariants
     })
   },
   setEditPlan: (editPlan) => set((state) => ({
@@ -459,6 +523,11 @@ export const useAppStore = create<AppState>((set) => ({
     transcriptCorrections: saved.project.transcriptCorrections,
     textEdits: saved.project.textEdits,
     transcriptEditRevision: saved.project.transcriptEditRevision,
+    semanticAnalysisReference: saved.project.semanticAnalysis,
+    topics: saved.project.topics,
+    semanticHints: saved.project.semanticHints,
+    highlightCandidates: saved.project.highlightCandidates,
+    outputVariants: saved.project.outputVariants,
     projectDirty: false
   }),
   setRecentProjects: (recentProjects) => set({ recentProjects }),
@@ -499,7 +568,8 @@ export const useAppStore = create<AppState>((set) => ({
       pace: state.projectSettings.editing.pace,
       selectionMode: state.projectSettings.editing.selectionMode,
       targetDuration: targetDurationInSeconds(state.projectSettings),
-      settingsSnapshot: structuredClone(state.projectSettings)
+      settingsSnapshot: structuredClone(state.projectSettings),
+      variantId: previewResult.plan.variantId
     }
     return {
       screen: 'review',
@@ -641,6 +711,11 @@ export const useAppStore = create<AppState>((set) => ({
       reference.transcriptId === transcript.id ? { ...reference, revision: transcript.revision } : reference
     ),
     transcriptEditRevision: state.transcriptEditRevision + 1,
+    semanticAnalysis: null,
+    semanticAnalysisReference: null,
+    topics: [],
+    highlightCandidates: [],
+    outputVariants: state.outputVariants.map((variant) => reviseOutputVariant(variant, { editGoal: variant.editGoal })),
     projectDirty: true,
     previewOutdated: Boolean(state.previewResult),
     previewHistory: state.previewResult ? outdatedHistory(state.previewHistory) : state.previewHistory,
@@ -673,6 +748,11 @@ export const useAppStore = create<AppState>((set) => ({
       ),
       transcriptCorrections: [...state.transcriptCorrections.filter((item) => !(item.transcriptId === transcriptId && item.wordId === wordId)), correction],
       transcriptEditRevision: state.transcriptEditRevision + 1,
+      semanticAnalysis: null,
+      semanticAnalysisReference: null,
+      topics: [],
+      highlightCandidates: [],
+      outputVariants: state.outputVariants.map((variant) => reviseOutputVariant(variant, { editGoal: variant.editGoal })),
       projectDirty: true, previewOutdated: Boolean(state.previewResult),
       previewHistory: state.previewResult ? outdatedHistory(state.previewHistory) : state.previewHistory,
       editPlan: state.editPlan ? { ...state.editPlan, captionTrack: null, transcriptEditRevision: state.transcriptEditRevision + 1 } : null
@@ -719,5 +799,90 @@ export const useAppStore = create<AppState>((set) => ({
   restoreTextEdit: (id) => set((state) => ({
     textEdits: state.textEdits.map((edit) => edit.id === id ? { ...edit, restored: true } : edit),
     transcriptEditRevision: state.transcriptEditRevision + 1, projectDirty: true
+  })),
+  updateSemanticSettings: (patch) => set((state) => ({
+    projectSettings: { ...state.projectSettings, semantic: { ...state.projectSettings.semantic, ...patch } },
+    projectDirty: true,
+    editPlanOutdated: Boolean(state.editPlan),
+    previewOutdated: Boolean(state.previewResult),
+    previewHistory: outdatedHistory(state.previewHistory),
+    outputVariants: state.outputVariants.map((variant) => reviseOutputVariant(variant, {
+      ...(patch.editGoal != null ? { editGoal: patch.editGoal } : {}),
+      ...(patch.editGoalStrength != null ? { editGoalStrength: patch.editGoalStrength } : {})
+    }))
+  })),
+  setSemanticModelStatus: (semanticModelStatus) => set({ semanticModelStatus }),
+  beginSemanticAnalysis: (activeSemanticJobId) => set({
+    activeSemanticJobId, semanticProgress: null, semanticError: null
+  }),
+  setSemanticProgress: (semanticProgress) => set((state) =>
+    state.activeSemanticJobId === semanticProgress.jobId ? { semanticProgress } : state),
+  completeSemanticAnalysis: (semanticAnalysis, semanticAnalysisReference) => set({
+    semanticAnalysis,
+    semanticAnalysisReference,
+    topics: semanticAnalysis.topics,
+    activeSemanticJobId: null,
+    semanticProgress: null,
+    semanticError: null,
+    projectDirty: true
+  }),
+  setLoadedSemanticAnalysis: (semanticAnalysis) => set((state) => ({
+    semanticAnalysis,
+    topics: semanticAnalysis?.topics.length ? semanticAnalysis.topics.map((topic) => {
+      const persisted = state.topics.find((item) => item.id === topic.id)
+      return persisted ? { ...topic, userLabel: persisted.userLabel, importance: persisted.importance,
+        chapterEnabled: persisted.chapterEnabled, chapterStart: persisted.chapterStart } : topic
+    }) : state.topics,
+    semanticError: null
+  })),
+  failSemanticAnalysis: (semanticError) => set({ activeSemanticJobId: null, semanticProgress: null, semanticError }),
+  updateTopic: (id, patch) => set((state) => {
+    const topics = state.topics.map((topic) => topic.id === id ? { ...topic, ...patch } : topic)
+    return {
+      topics,
+      semanticAnalysis: state.semanticAnalysis ? { ...state.semanticAnalysis, topics } : null,
+      projectDirty: true,
+      editPlanOutdated: Boolean(state.editPlan),
+      previewOutdated: Boolean(state.previewResult),
+      previewHistory: outdatedHistory(state.previewHistory),
+      outputVariants: state.outputVariants.map((variant) => reviseOutputVariant(variant, { editGoal: variant.editGoal }))
+    }
+  }),
+  addSemanticHint: (hint) => set((state) => ({
+    semanticHints: [...state.semanticHints.filter((item) => !(item.sourcePath === hint.sourcePath && item.start === hint.start && item.end === hint.end)), hint],
+    projectDirty: true,
+    editPlanOutdated: Boolean(state.editPlan),
+    previewOutdated: Boolean(state.previewResult),
+    previewHistory: outdatedHistory(state.previewHistory),
+    outputVariants: state.outputVariants.map((variant) => reviseOutputVariant(variant, { editGoal: variant.editGoal }))
+  })),
+  removeSemanticHint: (id) => set((state) => ({
+    semanticHints: state.semanticHints.filter((hint) => hint.id !== id),
+    projectDirty: true,
+    editPlanOutdated: Boolean(state.editPlan),
+    previewOutdated: Boolean(state.previewResult),
+    previewHistory: outdatedHistory(state.previewHistory),
+    outputVariants: state.outputVariants.map((variant) => reviseOutputVariant(variant, { editGoal: variant.editGoal }))
+  })),
+  setHighlightCandidates: (highlightCandidates) => set((state) => ({
+    highlightCandidates, projectDirty: true,
+    outputVariants: state.outputVariants.map((variant) => reviseOutputVariant(variant, { editGoal: variant.editGoal }))
+  })),
+  updateHighlightCandidate: (id, patch) => set((state) => ({
+    highlightCandidates: state.highlightCandidates.map((candidate) => candidate.id === id ? { ...candidate, ...patch } : candidate),
+    projectDirty: true,
+    outputVariants: state.outputVariants.map((variant) => reviseOutputVariant(variant, { editGoal: variant.editGoal }))
+  })),
+  setOutputVariants: (outputVariants) => set({ outputVariants, projectDirty: true }),
+  addOutputVariants: (variants) => set((state) => ({
+    outputVariants: [...state.outputVariants, ...variants.filter((variant) => !state.outputVariants.some((item) => item.platformPresetId === variant.platformPresetId))],
+    projectDirty: true
+  })),
+  updateOutputVariant: (id, patch) => set((state) => ({
+    outputVariants: state.outputVariants.map((variant) => variant.id === id ? reviseOutputVariant(variant, patch) : variant),
+    projectDirty: true
+  })),
+  removeOutputVariant: (id) => set((state) => ({
+    outputVariants: state.outputVariants.filter((variant) => variant.id !== id), projectDirty: true
   }))
 }))

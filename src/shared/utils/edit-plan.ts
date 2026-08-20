@@ -54,7 +54,9 @@ export function tryAlternateSegment(plan: RenderPlan, id: string): RenderPlan {
       end: current.end,
       scores: previous.scores,
       reasons: previous.reasons,
-      personAnalysis: previous.personAnalysis
+      personAnalysis: previous.personAnalysis,
+      semanticRelevance: previous.scores.semanticRelevance,
+      speechPresent: previous.scores.speechActivity > 0.25
     },
     ...(previous.alternatives ?? []).slice(1)
   ]

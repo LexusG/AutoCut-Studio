@@ -63,6 +63,12 @@ export function validateProjectSettings(
   if (!['natural', 'beat-assisted', 'beat-strong'].includes(settings.editing.cutSync)) {
     add('cut-sync', 'error', 'Choose a valid Cut Sync mode.')
   }
+  if (!['light', 'balanced', 'strong'].includes(settings.semantic.editGoalStrength)) {
+    add('edit-goal-strength', 'error', 'Choose Light, Balanced, or Strong Edit Goal strength.')
+  }
+  if (settings.semantic.editGoal.length > 500) {
+    add('edit-goal-length', 'error', 'Edit Goal must be 500 characters or fewer.')
+  }
   if (settings.editing.useEveryClip && targetSeconds && clipCount > 0) {
     const approximateMinimum = clipCount * minimumSecondsPerClip[settings.editing.pace]
     if (targetSeconds < approximateMinimum) {

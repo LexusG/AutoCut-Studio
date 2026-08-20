@@ -205,7 +205,7 @@ test('completes the realistic Phase 6 content-aware and manual Edit Plan workflo
       }
     }
     expect(savedBeforeRender).toMatchObject({
-      version: 6,
+      version: 7,
       settings: {
         output: { width: 360, height: 640 },
         editing: { selectionMode: 'smart', analysisQuality: 'fast' },
@@ -240,7 +240,7 @@ test('completes the realistic Phase 6 content-aware and manual Edit Plan workflo
     await page.getByRole('button', { name: 'Review Preview' }).click()
     await page.getByRole('button', { name: 'Back to Edit' }).first().click()
     await page.getByText('Advanced Smart Settings').click()
-    await expect(page.locator('.model-status')).toContainText('Active - MediaPipe Pose Lite')
+    await expect(page.locator('.model-status').filter({ hasText: 'Person Detection' })).toContainText('Active - MediaPipe Pose Lite')
     await page.getByRole('button', { name: 'Review Preview' }).click()
     await expect(page.getByRole('heading', { name: 'Phase 6 Content Smoke' })).toBeVisible()
     await expect(page.locator('.final-preview-video')).toHaveAttribute('src', /^autocut-media:/)
@@ -545,7 +545,7 @@ test('completes the Phase 7 local transcript caption and text editing workflow',
       textEdits: unknown[]
       editPlan: { captionTrack: { chunks: Array<{ text: string }> }; captionMode: string; transcriptEditRevision: number }
     }
-    expect(saved.version).toBe(6)
+    expect(saved.version).toBe(7)
     expect(saved.transcriptReferences).toHaveLength(5)
     expect(saved.transcriptCorrections).not.toHaveLength(0)
     expect(saved.textEdits.length).toBeGreaterThanOrEqual(1)

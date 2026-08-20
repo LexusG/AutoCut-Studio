@@ -24,6 +24,8 @@ export function useVideoRender(): {
   const previewGeneration = useAppStore((state) => state.previewGeneration)
   const editPlan = useAppStore((state) => state.editPlan)
   const editPlanOutdated = useAppStore((state) => state.editPlanOutdated)
+  const semanticHints = useAppStore((state) => state.semanticHints)
+  const topics = useAppStore((state) => state.topics)
   const setEditPlan = useAppStore((state) => state.setEditPlan)
   const beginRender = useAppStore((state) => state.beginRender)
   const setRenderProgress = useAppStore((state) => state.setRenderProgress)
@@ -52,7 +54,10 @@ export function useVideoRender(): {
       const outcome = await window.autoCut.createEditPlan({
         renderId, projectId, generation, sourcePaths,
         settingsFingerprint: createRenderFingerprint(projectSettings, sourcePaths),
-        settings: toRenderSettings(projectSettings), currentPlan: editPlan
+        settings: toRenderSettings(projectSettings), currentPlan: editPlan,
+        semanticHints,
+        topicSelections: topics.map((topic) => ({ topicId: topic.id, importance: topic.importance })),
+        generationMode: 'full-edit'
       })
       if (outcome.success) setEditPlan(outcome.plan)
       else showDurationIssue(outcome.issue)
@@ -61,7 +66,7 @@ export function useVideoRender(): {
       if (message.toLowerCase().includes('cancel')) markRenderCancelled()
       else failRender(message)
     }
-  }, [activeRenderId, beginRender, clips, editPlan, failRender, markRenderCancelled, previewGeneration, projectId, projectSettings, setEditPlan, showDurationIssue])
+  }, [activeRenderId, beginRender, clips, editPlan, failRender, markRenderCancelled, previewGeneration, projectId, projectSettings, semanticHints, setEditPlan, showDurationIssue, topics])
 
   const generatePreview = useCallback(async (regenerate = false) => {
     if (clips.length === 0 || activeRenderId || !editPlan || editPlanOutdated) {
