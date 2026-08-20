@@ -6,6 +6,8 @@ export interface ApplicationStoragePaths {
   projects: string
   analysisCache: string
   logs: string
+  models: string
+  processing: string
 }
 
 export function applicationStoragePaths(): ApplicationStoragePaths {
@@ -14,7 +16,8 @@ export function applicationStoragePaths(): ApplicationStoragePaths {
     root,
     projects: join(root, 'projects'),
     analysisCache: join(root, 'analysis-cache'),
-    logs: join(root, 'logs')
+    logs: join(root, 'logs'),
+    models: join(root, 'models'),
+    processing: join(root, 'processing')
   }
 }
-

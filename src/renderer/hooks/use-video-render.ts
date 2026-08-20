@@ -85,7 +85,7 @@ export function useVideoRender(): {
         projectId,
         generation,
         sourcePaths,
-        settingsFingerprint: createRenderFingerprint(projectSettings, sourcePaths),
+        settingsFingerprint: editPlan.settingsFingerprint,
         settings: toRenderSettings(projectSettings),
         plan: editPlan
       })
@@ -141,6 +141,16 @@ export function useVideoRender(): {
         previewFinalLoudness: previewResult.finalLoudness
       })
       completeExport(result)
+      if (
+        previewResult.plan.captionTrack &&
+        (previewResult.plan.subtitleOutput === 'file-only' || previewResult.plan.subtitleOutput === 'burned-in-and-file')
+      ) {
+        await window.autoCut.exportSubtitles({
+          projectName: projectSettings.name,
+          format: 'srt',
+          track: previewResult.plan.captionTrack
+        })
+      }
     } catch (error) {
       const message = renderErrorMessage(error)
       if (message.toLowerCase().includes('cancel')) markRenderCancelled()
@@ -154,6 +164,7 @@ export function useVideoRender(): {
     markRenderCancelled,
     previewOutdated,
     previewResult,
+    projectSettings.name,
     projectSettings.outputFilename
   ])
 

@@ -31,10 +31,15 @@ export function useProjectFiles(): ProjectFileActions {
   const projectFilePath = useAppStore((state) => state.projectFilePath)
   const previewHistory = useAppStore((state) => state.previewHistory)
   const editPlan = useAppStore((state) => state.editPlan)
+  const transcriptReferences = useAppStore((state) => state.transcriptReferences)
+  const transcriptCorrections = useAppStore((state) => state.transcriptCorrections)
+  const textEdits = useAppStore((state) => state.textEdits)
+  const transcriptEditRevision = useAppStore((state) => state.transcriptEditRevision)
   const markSaved = useAppStore((state) => state.markProjectSaved)
   const loadProject = useAppStore((state) => state.loadProject)
   const setRecentProjects = useAppStore((state) => state.setRecentProjects)
   const setImporting = useAppStore((state) => state.setImporting)
+  const setTranscripts = useAppStore((state) => state.setTranscripts)
 
   const clearFeedback = useCallback(() => {
     setMessage(null)
@@ -61,13 +66,14 @@ export function useProjectFiles(): ProjectFileActions {
           ? await window.autoCut.importVideoFiles(loaded.project.sourcePaths)
           : { clips: [], failures: [] }
         loadProject(loaded.project, loaded.filePath, imported.clips, imported.failures)
+        setTranscripts(await window.autoCut.loadTranscripts(loaded.project.id, loaded.project.transcriptReferences))
         setMessage(`Opened ${loaded.project.settings.name}`)
         await refreshRecent()
       } finally {
         setImporting(false)
       }
     },
-    [loadProject, refreshRecent, setImporting]
+    [loadProject, refreshRecent, setImporting, setTranscripts]
   )
 
   const chooseAndOpen = useCallback(async (): Promise<boolean> => {
@@ -120,7 +126,8 @@ export function useProjectFiles(): ProjectFileActions {
         clips.map((clip) => clip.path),
         { id: projectId, createdAt: projectCreatedAt },
         previewHistory,
-        editPlan
+        editPlan,
+        { transcriptReferences, transcriptCorrections, textEdits, transcriptEditRevision }
       )
       const saved = await window.autoCut.saveProject(project, projectFilePath)
       if (!saved) return false
@@ -134,7 +141,7 @@ export function useProjectFiles(): ProjectFileActions {
     } finally {
       setBusy(false)
     }
-  }, [clearFeedback, clips, editPlan, markSaved, previewHistory, projectCreatedAt, projectFilePath, projectId, refreshRecent, settings])
+  }, [clearFeedback, clips, editPlan, markSaved, previewHistory, projectCreatedAt, projectFilePath, projectId, refreshRecent, settings, textEdits, transcriptCorrections, transcriptEditRevision, transcriptReferences])
 
   const removeRecent = useCallback(
     async (path: string): Promise<void> => {

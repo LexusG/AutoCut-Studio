@@ -18,6 +18,19 @@ import type {
   RenderProgress
 } from './render'
 import type { PersonAnalysisConfiguration, PersonAnalysisSummary } from './render'
+import type {
+  CaptionBuildRequest,
+  CaptionTrack,
+  SubtitleExportRequest,
+  Transcript,
+  TranscriptReference,
+  TranscriptionModelInfo,
+  TranscriptionModelProgress,
+  TranscriptionProgress,
+  TranscriptionRequest,
+  TranscriptionResult,
+  TranscriptionStatus
+} from './transcription'
 
 export interface PersonAnalysisFrame {
   timestamp: number
@@ -74,6 +87,18 @@ export interface AutoCutApi {
   onPersonAnalysisRequest: (callback: (request: PersonAnalysisRequest) => void) => () => void
   onPersonAnalysisCancel: (callback: (requestId: string) => void) => () => void
   submitPersonAnalysisResponse: (response: PersonAnalysisResponse) => void
+  getTranscriptionStatus: () => Promise<TranscriptionStatus>
+  installTranscriptionModel: (model: string) => Promise<TranscriptionModelInfo>
+  removeTranscriptionModel: (model: string) => Promise<void>
+  onTranscriptionModelProgress: (callback: (progress: TranscriptionModelProgress) => void) => () => void
+  transcribe: (request: TranscriptionRequest) => Promise<TranscriptionResult>
+  cancelTranscription: (jobId: string) => Promise<boolean>
+  onTranscriptionProgress: (callback: (progress: TranscriptionProgress) => void) => () => void
+  loadTranscripts: (projectId: string, references: TranscriptReference[]) => Promise<Transcript[]>
+  updateTranscript: (transcript: Transcript) => Promise<TranscriptReference>
+  detectFillers: (transcript: Transcript) => Promise<Transcript>
+  buildCaptionTrack: (request: CaptionBuildRequest) => Promise<CaptionTrack | null>
+  exportSubtitles: (request: SubtitleExportRequest) => Promise<string | null>
   getPathForFile: (file: File) => string
 }
 
@@ -102,5 +127,17 @@ export const IPC_CHANNELS = {
   personDetectionStatus: 'person:status',
   personAnalysisRequest: 'person:analyze-request',
   personAnalysisResponse: 'person:analyze-response',
-  personAnalysisCancel: 'person:analyze-cancel'
+  personAnalysisCancel: 'person:analyze-cancel',
+  transcriptionStatus: 'transcription:status',
+  transcriptionInstallModel: 'transcription:install-model',
+  transcriptionRemoveModel: 'transcription:remove-model',
+  transcriptionModelProgress: 'transcription:model-progress',
+  transcriptionRun: 'transcription:run',
+  transcriptionCancel: 'transcription:cancel',
+  transcriptionProgress: 'transcription:progress',
+  transcriptionLoad: 'transcription:load',
+  transcriptionUpdate: 'transcription:update',
+  transcriptionDetectFillers: 'transcription:detect-fillers',
+  captionBuild: 'captions:build',
+  subtitleExport: 'captions:export-subtitles'
 } as const

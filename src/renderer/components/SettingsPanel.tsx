@@ -88,7 +88,7 @@ export function SettingsPanel(): React.JSX.Element {
     <aside className="settings-panel" aria-label="Project configuration">
       <div className="settings-heading">
         <div><SlidersHorizontal size={17} /><h2>Project Settings</h2></div>
-        <span>PHASE 6</span>
+        <span>PHASE 7</span>
       </div>
 
       <div className="settings-scroll">

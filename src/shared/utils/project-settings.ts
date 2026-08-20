@@ -114,6 +114,38 @@ export function createDefaultProjectSettings(): ProjectSettings {
       modelVersion: 'pose-landmarker-lite-2023-04-17',
       modelHash: '59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a',
       analyzerVersion: 'phase5-person-v1'
+    },
+    transcription: {
+      provider: 'whisper.cpp',
+      quality: 'balanced',
+      language: 'english',
+      threads: 4
+    },
+    captions: {
+      mode: 'off',
+      subtitleOutput: 'none',
+      style: {
+        preset: 'clean',
+        fontFamily: 'DejaVu Sans',
+        fontSize: 48,
+        fontWeight: 600,
+        textColor: '#ffffff',
+        highlightColor: '#facc15',
+        backgroundEnabled: true,
+        backgroundOpacity: 0.58,
+        outline: 2,
+        shadow: 1,
+        alignment: 'center',
+        position: 'bottom',
+        verticalOffset: 8,
+        maximumWidth: 84,
+        lineSpacing: 1
+      },
+      safeAreaPreset: 'youtube-standard',
+      safeAreaVisible: false,
+      highlightSpokenWord: true,
+      highlightBehavior: 'color',
+      animation: 'none'
     }
   }
 }
@@ -153,6 +185,10 @@ export function applyPlatformPreset(settings: ProjectSettings, presetId: string)
 
   const preset = getPreset(presetId)
   if (!preset) throw new Error('The selected platform preset is unavailable.')
+  const social = preset.id === 'instagram-reel' || preset.id === 'instagram-story' || preset.id === 'youtube-shorts'
+  const safeAreaPreset = preset.id === 'instagram-reel' || preset.id === 'instagram-story' || preset.id === 'youtube-shorts' || preset.id === 'youtube-standard'
+    ? preset.id
+    : preset.platform === 'linkedin' ? 'linkedin' : 'custom'
   return withGeneratedFilename({
     ...settings,
     platform: preset.platform,
@@ -167,6 +203,16 @@ export function applyPlatformPreset(settings: ProjectSettings, presetId: string)
       videoCodec: preset.videoCodec,
       audioCodec: preset.audioCodec,
       fitBackground: 'blurred'
+    },
+    captions: {
+      ...settings.captions,
+      mode: social ? 'dynamic' : settings.captions.mode,
+      safeAreaPreset,
+      style: {
+        ...settings.captions.style,
+        preset: social ? 'bold' : 'clean',
+        position: social ? 'lower-middle' : 'bottom'
+      }
     }
   })
 }
@@ -265,7 +311,8 @@ export function toRenderSettings(settings: ProjectSettings): RenderSettings {
     contentAwareness: settings.editing.contentAwareness,
     speechCutProtection: settings.editing.speechCutProtection,
     cutSync: settings.editing.cutSync,
-    cropFocus: settings.output.cropFocus
+    cropFocus: settings.output.cropFocus,
+    captions: structuredClone(settings.captions)
   }
 }
 
@@ -291,18 +338,25 @@ export function createProjectFile(
   sourcePaths: string[],
   existing?: Pick<ProjectFile, 'id' | 'createdAt'>,
   previewHistory: ProjectFile['previewHistory'] = [],
-  editPlan: ProjectFile['editPlan'] = null
+  editPlan: ProjectFile['editPlan'] = null,
+  phase7: Pick<ProjectFile, 'transcriptReferences' | 'transcriptCorrections' | 'textEdits' | 'transcriptEditRevision'> = {
+    transcriptReferences: [], transcriptCorrections: [], textEdits: [], transcriptEditRevision: 0
+  }
 ): ProjectFile {
   const now = new Date().toISOString()
   return {
-    version: 5,
+    version: 6,
     id: existing?.id ?? crypto.randomUUID(),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     settings: structuredClone(settings),
     sourcePaths: [...sourcePaths],
     previewHistory: structuredClone(previewHistory),
-    editPlan: editPlan ? structuredClone(editPlan) : null
+    editPlan: editPlan ? structuredClone(editPlan) : null,
+    transcriptReferences: structuredClone(phase7.transcriptReferences),
+    transcriptCorrections: structuredClone(phase7.transcriptCorrections),
+    textEdits: structuredClone(phase7.textEdits),
+    transcriptEditRevision: phase7.transcriptEditRevision
   }
 }
 

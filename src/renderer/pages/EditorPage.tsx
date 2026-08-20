@@ -1,4 +1,5 @@
-import { ArrowLeft, ClipboardList, Play, Save, Sparkles } from 'lucide-react'
+import { ArrowLeft, ClipboardList, FileText, Play, Save, Sparkles } from 'lucide-react'
+import { useState } from 'react'
 import { BrandMark } from '../components/BrandMark'
 import { FfmpegNotice } from '../components/FfmpegNotice'
 import { MediaPanel } from '../components/MediaPanel'
@@ -6,11 +7,13 @@ import { PreviewPanel } from '../components/PreviewPanel'
 import { RenderDialog } from '../components/RenderDialog'
 import { SettingsPanel } from '../components/SettingsPanel'
 import { EditPlanPanel } from '../components/EditPlanPanel'
+import { TranscriptPanel } from '../components/TranscriptPanel'
 import { useVideoRender } from '../hooks/use-video-render'
 import { useProjectFiles } from '../hooks/use-project-files'
 import { useAppStore } from '../stores/app-store'
 
 export function EditorPage(): React.JSX.Element {
+  const [transcriptOpen, setTranscriptOpen] = useState(false)
   const returnHome = useAppStore((state) => state.returnHome)
   const projectName = useAppStore((state) => state.projectSettings.name)
   const setProjectName = useAppStore((state) => state.setProjectName)
@@ -58,6 +61,7 @@ export function EditorPage(): React.JSX.Element {
             <Sparkles size={16} /> {editPlan ? 'Update Edit Plan' : 'Create Edit Plan'}
           </button>
           {editPlan && <button className="button button-secondary" type="button" onClick={showEditPlan}><ClipboardList size={16} /> Review Plan</button>}
+          <button className="button button-secondary" type="button" onClick={() => setTranscriptOpen(true)}><FileText size={16} /> Transcript</button>
           <button className="button button-primary" type="button" disabled={!editPlan || editPlanOutdated || isRendering} onClick={() => void generatePreview()}><Play size={16} fill="currentColor" /> Generate Preview</button>
         </div>
       </header>
@@ -68,6 +72,7 @@ export function EditorPage(): React.JSX.Element {
         <SettingsPanel />
       </div>
       <EditPlanPanel />
+      <TranscriptPanel open={transcriptOpen} close={() => setTranscriptOpen(false)} />
       <RenderDialog onCancel={cancel} />
     </main>
   )

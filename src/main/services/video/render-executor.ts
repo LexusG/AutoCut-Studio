@@ -1,4 +1,4 @@
-import { appendFile, mkdir } from 'node:fs/promises'
+import { appendFile, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
   LoudnessVerification,
@@ -11,6 +11,7 @@ import type {
   TimeRegion
 } from '@shared/types'
 import { ProcessExecutionError, runProcess } from '../ffmpeg/process'
+import { serializeAss } from '../captions/subtitle-exporter'
 import { musicMixFilters, sourceAudioFilter } from './audio-filters'
 import { prepareSoundtrack } from './soundtrack-processor'
 import { smartCropFilter } from './content/subject-crop'
@@ -194,7 +195,7 @@ async function normalizeSegment(
   })
 }
 
-function transitionFilters(plan: RenderPlan): { filters: string[]; video: string; audio: string } {
+export function transitionFilters(plan: RenderPlan): { filters: string[]; video: string; audio: string } {
   const filters: string[] = []
   if (plan.segments.length === 1) {
     filters.push(
@@ -225,12 +226,22 @@ function transitionFilters(plan: RenderPlan): { filters: string[]; video: string
   for (let index = 1; index < plan.segments.length; index += 1) {
     const transition = plan.segments[index - 1].transitionToNext
     const transitionDuration = transition?.duration ?? 0
+    const nextVideo = index === plan.segments.length - 1 ? 'basev' : `vx${index}`
+    const nextAudio = index === plan.segments.length - 1 ? 'basea' : `ax${index}`
+    if (transitionDuration <= 0) {
+      filters.push(
+        `[${videoLabel}][v${index}]concat=n=2:v=1:a=0[${nextVideo}]`,
+        `[${audioLabel}][a${index}]concat=n=2:v=0:a=1[${nextAudio}]`
+      )
+      accumulatedDuration += plan.segments[index].duration
+      videoLabel = nextVideo
+      audioLabel = nextAudio
+      continue
+    }
     const transitionName = transition && transition.type !== 'none'
       ? transitionNames[transition.type]
       : 'fade'
     const offset = Math.max(0, accumulatedDuration - transitionDuration)
-    const nextVideo = index === plan.segments.length - 1 ? 'basev' : `vx${index}`
-    const nextAudio = index === plan.segments.length - 1 ? 'basea' : `ax${index}`
     filters.push(
       `[${videoLabel}][v${index}]xfade=transition=${transitionName}:duration=${transitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}[${nextVideo}]`,
       `[${audioLabel}][a${index}]acrossfade=d=${transitionDuration.toFixed(3)}:c1=tri:c2=tri[${nextAudio}]`
@@ -248,7 +259,8 @@ function compositionArgs(
   ducking: boolean,
   soundtrackPath: string | null,
   videoPath: string,
-  mixPath: string
+  mixPath: string,
+  captionAssPath: string | null
 ): string[] {
   const args = ['-hide_banner', '-loglevel', 'error', '-y']
   for (const path of normalizedPaths) args.push('-i', path)
@@ -264,8 +276,11 @@ function compositionArgs(
 
   const transition = transitionFilters(options.plan)
   const filters = [...transition.filters]
+  const captionFilter = captionAssPath
+    ? `,subtitles='${captionAssPath.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'")}'`
+    : ''
   filters.push(
-    `[${transition.video}]trim=duration=${options.plan.expectedDuration.toFixed(3)},setpts=PTS-STARTPTS[finalv]`
+    `[${transition.video}]trim=duration=${options.plan.expectedDuration.toFixed(3)},setpts=PTS-STARTPTS${captionFilter}[finalv]`
   )
   let audioLabel = transition.audio
   if (background && !background.missing) {
@@ -363,8 +378,23 @@ export async function executeRender(options: ExecuteRenderOptions): Promise<{
   const videoPath = join(options.normalizedDirectory, 'composition-video.mp4')
   const mixPath = join(options.normalizedDirectory, 'final-mix.wav')
   const normalizedMixPath = join(options.normalizedDirectory, 'final-mix-normalized.wav')
+  const burnCaptions = options.plan.captionTrack && (
+    options.plan.subtitleOutput === 'burned-in' || options.plan.subtitleOutput === 'burned-in-and-file'
+  )
+  const captionAssPath = burnCaptions ? join(options.normalizedDirectory, 'captions.ass') : null
+  if (captionAssPath && options.plan.captionTrack) {
+    await writeFile(captionAssPath, serializeAss(
+      options.plan.captionTrack,
+      options.plan.captionStyle,
+      options.plan.output.width,
+      options.plan.output.height,
+      options.plan.captionMode === 'dynamic' && options.plan.captionHighlightSpokenWord,
+      options.plan.captionHighlightBehavior,
+      options.plan.captionAnimation
+    ), 'utf8')
+  }
   const runComposition = async (ducking: boolean): Promise<void> => {
-    const args = compositionArgs(options, normalizedPaths, ducking, soundtrackPath, videoPath, mixPath)
+    const args = compositionArgs(options, normalizedPaths, ducking, soundtrackPath, videoPath, mixPath, captionAssPath)
     await logCommand(options.logPath, ducking ? 'compose-with-ducking' : 'compose', options.ffmpegPath, args)
     await runProcess(options.ffmpegPath, args, {
       signal: options.signal,

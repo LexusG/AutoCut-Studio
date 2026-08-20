@@ -21,6 +21,13 @@ import type {
   RenderPlan,
   SpeechCutProtection
 } from './render'
+import type {
+  CaptionSettings,
+  TranscriptCorrection,
+  TranscriptReference,
+  TranscriptTextEdit,
+  TranscriptionSettings
+} from './transcription'
 
 export type PlatformId = 'instagram' | 'youtube' | 'linkedin' | 'custom'
 export type Orientation = 'landscape' | 'portrait' | 'square' | 'source'
@@ -160,10 +167,12 @@ export interface ProjectSettings {
   outputFilenameCustom: boolean
   previewQuality: PreviewQuality
   personAnalysis: PersonAnalysisConfiguration
+  transcription: TranscriptionSettings
+  captions: CaptionSettings
 }
 
 export interface ProjectFile {
-  version: 5
+  version: 6
   id: string
   createdAt: string
   updatedAt: string
@@ -171,6 +180,10 @@ export interface ProjectFile {
   sourcePaths: string[]
   previewHistory: PreviewVersion[]
   editPlan: RenderPlan | null
+  transcriptReferences: TranscriptReference[]
+  transcriptCorrections: TranscriptCorrection[]
+  textEdits: TranscriptTextEdit[]
+  transcriptEditRevision: number
 }
 
 export interface PreviewVersion {

@@ -46,6 +46,26 @@ const api: AutoCutApi = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.personAnalysisCancel, listener)
   },
   submitPersonAnalysisResponse: (response) => ipcRenderer.send(IPC_CHANNELS.personAnalysisResponse, response),
+  getTranscriptionStatus: () => ipcRenderer.invoke(IPC_CHANNELS.transcriptionStatus),
+  installTranscriptionModel: (model) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionInstallModel, model),
+  removeTranscriptionModel: (model) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionRemoveModel, model),
+  onTranscriptionModelProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: Parameters<typeof callback>[0]): void => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.transcriptionModelProgress, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.transcriptionModelProgress, listener)
+  },
+  transcribe: (request) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionRun, request),
+  cancelTranscription: (jobId) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionCancel, jobId),
+  onTranscriptionProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: Parameters<typeof callback>[0]): void => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.transcriptionProgress, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.transcriptionProgress, listener)
+  },
+  loadTranscripts: (projectId, references) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionLoad, projectId, references),
+  updateTranscript: (transcript) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionUpdate, transcript),
+  detectFillers: (transcript) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionDetectFillers, transcript),
+  buildCaptionTrack: (request) => ipcRenderer.invoke(IPC_CHANNELS.captionBuild, request),
+  exportSubtitles: (request) => ipcRenderer.invoke(IPC_CHANNELS.subtitleExport, request),
   getPathForFile: (file) => webUtils.getPathForFile(file)
 }
 

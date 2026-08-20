@@ -20,7 +20,17 @@ import type {
   RenderProgress,
   SavedProject,
   TargetDurationSettings,
-  VideoOutputSettings
+  VideoOutputSettings,
+  CaptionSettings,
+  CaptionTrack,
+  Transcript,
+  TranscriptCorrection,
+  TranscriptReference,
+  TranscriptTextEdit,
+  TranscriptionProgress,
+  TranscriptionResult,
+  TranscriptionStatus,
+  TranscriptionSettings
 } from '@shared/types'
 import {
   applyPlatformPreset,
@@ -65,6 +75,15 @@ interface AppState {
   durationIssue: DurationConstraintIssue | null
   renderError: string | null
   activeRenderId: string | null
+  transcripts: Transcript[]
+  transcriptReferences: TranscriptReference[]
+  transcriptCorrections: TranscriptCorrection[]
+  textEdits: TranscriptTextEdit[]
+  transcriptEditRevision: number
+  transcriptionStatus: TranscriptionStatus | null
+  transcriptionProgress: TranscriptionProgress | null
+  activeTranscriptionJobId: string | null
+  transcriptionError: string | null
   setEditPlan: (plan: RenderPlan) => void
   updateEditPlan: (updater: (plan: RenderPlan) => RenderPlan) => void
   showEditPlan: () => void
@@ -108,6 +127,19 @@ interface AppState {
   failRender: (message: string) => void
   markRenderCancelled: () => void
   dismissRenderDialog: () => void
+  setTranscriptionStatus: (status: TranscriptionStatus | null) => void
+  beginTranscription: (jobId: string) => void
+  setTranscriptionProgress: (progress: TranscriptionProgress) => void
+  completeTranscription: (result: TranscriptionResult) => void
+  failTranscription: (message: string) => void
+  setTranscripts: (transcripts: Transcript[]) => void
+  replaceTranscript: (transcript: Transcript) => void
+  correctTranscriptWord: (transcriptId: string, wordId: string, text: string) => void
+  updateCaptionSettings: (settings: CaptionSettings) => void
+  updateTranscriptionSettings: (settings: TranscriptionSettings) => void
+  setCaptionTrack: (track: CaptionTrack | null) => void
+  addTextEdit: (edit: TranscriptTextEdit) => void
+  restoreTextEdit: (id: string) => void
 }
 
 function freshProjectIdentity(): { projectId: string; projectCreatedAt: string } {
@@ -146,6 +178,15 @@ export const useAppStore = create<AppState>((set) => ({
   durationIssue: null,
   renderError: null,
   activeRenderId: null,
+  transcripts: [],
+  transcriptReferences: [],
+  transcriptCorrections: [],
+  textEdits: [],
+  transcriptEditRevision: 0,
+  transcriptionStatus: null,
+  transcriptionProgress: null,
+  activeTranscriptionJobId: null,
+  transcriptionError: null,
   startProject: () => set({
     screen: 'editor',
     projectSettings: createDefaultProjectSettings(),
@@ -169,7 +210,15 @@ export const useAppStore = create<AppState>((set) => ({
     previewGeneration: 0,
     durationIssue: null,
     renderError: null,
-    activeRenderId: null
+    activeRenderId: null,
+    transcripts: [],
+    transcriptReferences: [],
+    transcriptCorrections: [],
+    textEdits: [],
+    transcriptEditRevision: 0,
+    transcriptionProgress: null,
+    activeTranscriptionJobId: null,
+    transcriptionError: null
   }),
   loadProject: (project, projectFilePath, clips, importFailures) => {
     const latest = [...project.previewHistory]
@@ -199,7 +248,15 @@ export const useAppStore = create<AppState>((set) => ({
     previewGeneration: Math.max(0, ...project.previewHistory.map((version) => version.versionNumber)),
     durationIssue: null,
     renderError: null,
-    activeRenderId: null
+    activeRenderId: null,
+    transcripts: [],
+    transcriptReferences: project.transcriptReferences,
+    transcriptCorrections: project.transcriptCorrections,
+    textEdits: project.textEdits,
+    transcriptEditRevision: project.transcriptEditRevision,
+    transcriptionProgress: null,
+    activeTranscriptionJobId: null,
+    transcriptionError: null
     })
   },
   setEditPlan: (editPlan) => set((state) => ({
@@ -398,6 +455,10 @@ export const useAppStore = create<AppState>((set) => ({
     projectSettings: saved.project.settings,
     previewHistory: saved.project.previewHistory,
     editPlan: saved.project.editPlan,
+    transcriptReferences: saved.project.transcriptReferences,
+    transcriptCorrections: saved.project.transcriptCorrections,
+    textEdits: saved.project.textEdits,
+    transcriptEditRevision: saved.project.transcriptEditRevision,
     projectDirty: false
   }),
   setRecentProjects: (recentProjects) => set({ recentProjects }),
@@ -548,5 +609,115 @@ export const useAppStore = create<AppState>((set) => ({
     renderStatus: state.renderStatus === 'rendering' ? 'rendering' : 'idle',
     renderOperation: state.renderStatus === 'rendering' ? state.renderOperation : null,
     durationIssue: state.renderStatus === 'constraint' ? null : state.durationIssue
+  })),
+  setTranscriptionStatus: (transcriptionStatus) => set({ transcriptionStatus }),
+  beginTranscription: (activeTranscriptionJobId) => set({
+    activeTranscriptionJobId, transcriptionProgress: null, transcriptionError: null
+  }),
+  setTranscriptionProgress: (transcriptionProgress) => set((state) =>
+    state.activeTranscriptionJobId === transcriptionProgress.jobId ? { transcriptionProgress } : state
+  ),
+  completeTranscription: (result) => set((state) => {
+    const sourceIds = new Set(result.transcripts.map((transcript) => transcript.sourceClipId))
+    return {
+      transcripts: [...state.transcripts.filter((transcript) => !sourceIds.has(transcript.sourceClipId)), ...result.transcripts],
+      transcriptReferences: [
+        ...state.transcriptReferences.filter((reference) => !sourceIds.has(reference.sourceClipId)),
+        ...result.references
+      ],
+      activeTranscriptionJobId: null,
+      transcriptionProgress: null,
+      transcriptionError: null,
+      projectDirty: true
+    }
+  }),
+  failTranscription: (transcriptionError) => set({
+    transcriptionError, activeTranscriptionJobId: null, transcriptionProgress: null
+  }),
+  setTranscripts: (transcripts) => set({ transcripts }),
+  replaceTranscript: (transcript) => set((state) => ({
+    transcripts: state.transcripts.map((item) => item.id === transcript.id ? transcript : item),
+    transcriptReferences: state.transcriptReferences.map((reference) =>
+      reference.transcriptId === transcript.id ? { ...reference, revision: transcript.revision } : reference
+    ),
+    transcriptEditRevision: state.transcriptEditRevision + 1,
+    projectDirty: true,
+    previewOutdated: Boolean(state.previewResult),
+    previewHistory: state.previewResult ? outdatedHistory(state.previewHistory) : state.previewHistory,
+    editPlan: state.editPlan ? { ...state.editPlan, captionTrack: null, transcriptEditRevision: state.transcriptEditRevision + 1 } : null
+  })),
+  correctTranscriptWord: (transcriptId, wordId, text) => set((state) => {
+    const corrected = text.trim()
+    const transcript = state.transcripts.find((item) => item.id === transcriptId)
+    const original = transcript?.words.find((word) => word.id === wordId)
+    if (!transcript || !original || !corrected || corrected === original.text) return state
+    const mapWord = (word: Transcript['words'][number]): Transcript['words'][number] =>
+      word.id === wordId ? { ...word, text: corrected } : word
+    const words = transcript.words.map(mapWord)
+    const segments = transcript.segments.map((segment) => {
+      const segmentWords = segment.words.map(mapWord)
+      return { ...segment, words: segmentWords, text: segmentWords.map((word) => word.text).join(' ').replace(/\s+([,.!?;:])/g, '$1') }
+    })
+    const updated: Transcript = {
+      ...transcript, words, segments,
+      fullText: segments.map((segment) => segment.text).join(' '),
+      revision: transcript.revision + 1, updatedAt: new Date().toISOString()
+    }
+    const correction: TranscriptCorrection = {
+      transcriptId, wordId, originalText: original.originalText, correctedText: corrected
+    }
+    return {
+      transcripts: state.transcripts.map((item) => item.id === transcriptId ? updated : item),
+      transcriptReferences: state.transcriptReferences.map((reference) =>
+        reference.transcriptId === transcriptId ? { ...reference, revision: updated.revision } : reference
+      ),
+      transcriptCorrections: [...state.transcriptCorrections.filter((item) => !(item.transcriptId === transcriptId && item.wordId === wordId)), correction],
+      transcriptEditRevision: state.transcriptEditRevision + 1,
+      projectDirty: true, previewOutdated: Boolean(state.previewResult),
+      previewHistory: state.previewResult ? outdatedHistory(state.previewHistory) : state.previewHistory,
+      editPlan: state.editPlan ? { ...state.editPlan, captionTrack: null, transcriptEditRevision: state.transcriptEditRevision + 1 } : null
+    }
+  }),
+  updateCaptionSettings: (captions) => set((state) => ({
+    projectSettings: { ...state.projectSettings, captions },
+    editPlan: state.editPlan ? {
+      ...state.editPlan, captionMode: captions.mode, subtitleOutput: captions.subtitleOutput,
+      captionStyle: structuredClone(captions.style), captionSafeArea: captions.safeAreaPreset,
+      captionHighlightSpokenWord: captions.highlightSpokenWord, captionHighlightBehavior: captions.highlightBehavior,
+      captionAnimation: captions.animation,
+      captionTrack: null, revision: state.editPlan.revision + 1
+    } : null,
+    projectDirty: true, previewOutdated: Boolean(state.previewResult),
+    previewHistory: state.previewResult ? outdatedHistory(state.previewHistory) : state.previewHistory,
+    exportResult: null
+  })),
+  updateTranscriptionSettings: (transcription) => set((state) => ({
+    projectSettings: { ...state.projectSettings, transcription },
+    projectDirty: true
+  })),
+  setCaptionTrack: (captionTrack) => set((state) => ({
+    editPlan: state.editPlan ? {
+      ...state.editPlan, captionTrack, captionMode: state.projectSettings.captions.mode,
+      subtitleOutput: state.projectSettings.captions.subtitleOutput,
+      captionStyle: structuredClone(state.projectSettings.captions.style),
+      captionSafeArea: state.projectSettings.captions.safeAreaPreset,
+      captionHighlightSpokenWord: state.projectSettings.captions.highlightSpokenWord,
+      captionHighlightBehavior: state.projectSettings.captions.highlightBehavior,
+      captionAnimation: state.projectSettings.captions.animation,
+      transcriptVersion: Math.max(0, ...state.transcripts.map((transcript) => transcript.revision)),
+      transcriptEditRevision: state.transcriptEditRevision,
+      revision: state.editPlan.revision + 1
+    } : null,
+    projectDirty: true, previewOutdated: Boolean(state.previewResult),
+    previewHistory: state.previewResult ? outdatedHistory(state.previewHistory) : state.previewHistory,
+    exportResult: null
+  })),
+  addTextEdit: (edit) => set((state) => ({
+    textEdits: [...state.textEdits, edit], transcriptEditRevision: state.transcriptEditRevision + 1,
+    projectDirty: true
+  })),
+  restoreTextEdit: (id) => set((state) => ({
+    textEdits: state.textEdits.map((edit) => edit.id === id ? { ...edit, restored: true } : edit),
+    transcriptEditRevision: state.transcriptEditRevision + 1, projectDirty: true
   }))
 }))

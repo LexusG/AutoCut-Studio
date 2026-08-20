@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -39,6 +39,30 @@ async function createSpeechVideo(path: string, source: string, text: string): Pr
     '-map', '0:v:0', '-map', '1:a:0', '-af', 'apad=pad_dur=6,atrim=0:6',
     '-t', '6', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-y', path
+  ])
+}
+
+async function createPersonSpeechVideo(path: string, portrait: boolean, text: string): Promise<void> {
+  const image = join(process.cwd(), 'e2e', 'fixtures', 'two-people-studio.png')
+  const size = portrait ? '270:480' : '480:270'
+  const crop = portrait ? 'crop=270:480:195:0' : 'crop=480:270'
+  await execFileAsync('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-loop', '1', '-i', image,
+    '-f', 'lavfi', '-i', `flite=text='${text}':voice=slt`,
+    '-map', '0:v:0', '-map', '1:a:0', '-vf', `scale=${size}:force_original_aspect_ratio=increase,${crop}`,
+    '-af', 'apad=pad_dur=6,atrim=0:6', '-t', '6', '-c:v', 'libx264', '-preset', 'ultrafast',
+    '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-y', path
+  ])
+}
+
+async function createPausedSpeechVideo(path: string): Promise<void> {
+  await execFileAsync('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=480x270:rate=30',
+    '-f', 'lavfi', '-i', "flite=text='First phrase':voice=slt",
+    '-f', 'lavfi', '-i', "flite=text='uh second phrase':voice=slt",
+    '-filter_complex', '[1:a]apad=pad_dur=1.4,atrim=0:2.2[a1];[2:a]atrim=0:2.5[a2];[a1][a2]concat=n=2:v=0:a=1,apad=pad_dur=6,atrim=0:6[a]',
+    '-map', '0:v:0', '-map', '[a]', '-t', '6', '-c:v', 'libx264', '-preset', 'ultrafast',
+    '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-y', path
   ])
 }
 
@@ -181,7 +205,7 @@ test('completes the realistic Phase 6 content-aware and manual Edit Plan workflo
       }
     }
     expect(savedBeforeRender).toMatchObject({
-      version: 5,
+      version: 6,
       settings: {
         output: { width: 360, height: 640 },
         editing: { selectionMode: 'smart', analysisQuality: 'fast' },
@@ -353,6 +377,194 @@ test('completes the realistic Phase 6 content-aware and manual Edit Plan workflo
     await page.setViewportSize({ width: 720, height: 900 })
     await expect(page.getByRole('button', { name: 'Approve & Export' })).toBeVisible()
     await page.screenshot({ path: '/tmp/autocut-studio-phase-six-compact.png', fullPage: true })
+  } finally {
+    if (electronApp) await electronApp.close()
+    await rm(fixtureDirectory, { recursive: true, force: true })
+  }
+})
+
+test('completes the Phase 7 local transcript caption and text editing workflow', async () => {
+  test.setTimeout(600_000)
+  const fixtureDirectory = await mkdtemp(join(tmpdir(), 'autocut-phase7-smoke-'))
+  const clips = [
+    join(fixtureDirectory, 'people-speech-landscape.mp4'),
+    join(fixtureDirectory, 'people-speech-portrait.mp4'),
+    join(fixtureDirectory, 'paused-speech.mp4'),
+    join(fixtureDirectory, 'silent-portrait.mp4'),
+    join(fixtureDirectory, 'music-square.mp4')
+  ]
+  const music = join(fixtureDirectory, 'beat.wav')
+  const outputPath = join(fixtureDirectory, 'phase7-captioned.mp4')
+  const subtitlePath = join(fixtureDirectory, 'phase7-captioned.srt')
+  const projectPath = join(fixtureDirectory, 'phase7-smoke.autocut.json')
+  const userDataPath = join(fixtureDirectory, 'user-data')
+  const sourceModel = '/home/hell/.config/autocut-studio/storage/models/whisper/base.en/ggml-base.en.bin'
+  const managedModelDirectory = join(userDataPath, 'storage', 'models', 'whisper', 'base.en')
+
+  await Promise.all([
+    createPersonSpeechVideo(clips[0], false, 'Welcome to Auto Cut Studio. Today we create readable captions.'),
+    createPersonSpeechVideo(clips[1], true, 'This second spoken clip shows people in a portrait video.'),
+    createPausedSpeechVideo(clips[2]),
+    createVideo(clips[3], 'testsrc2=size=270x480:rate=30', false),
+    createVideo(clips[4], 'rgbtestsrc=size=360x360:rate=30', true, 660),
+    createMusic(music, 620)
+  ])
+  await mkdir(managedModelDirectory, { recursive: true })
+  await symlink(sourceModel, join(managedModelDirectory, 'ggml-base.en.bin'))
+
+  const launchEnvironment = { ...process.env }
+  delete launchEnvironment.ELECTRON_RUN_AS_NODE
+  let electronApp: ElectronApplication | null = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataPath}`],
+    env: { ...launchEnvironment, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' }
+  })
+
+  try {
+    let page = await electronApp.firstWindow()
+    await page.getByRole('button', { name: 'New Project' }).click()
+    await page.getByLabel('Project name').fill('Phase 7 Caption Smoke')
+    await electronApp.evaluate(({ dialog }, paths) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: paths, bookmarks: [] })
+    }, clips)
+    await page.getByRole('button', { name: 'Browse files' }).click()
+    await expect(page.locator('.clip-card')).toHaveCount(5, { timeout: 30_000 })
+    await page.getByRole('tab', { name: 'Instagram' }).click()
+    await page.getByLabel('Output width').fill('360')
+    await page.getByLabel('Output height').fill('640')
+    await page.getByLabel('Selection mode').selectOption('smart')
+    await page.getByLabel('Analysis quality').selectOption('fast')
+    await page.getByText('Advanced Smart Settings').click()
+    await page.getByLabel('Prefer People').check()
+    await page.getByLabel('Prefer Spoken Moments').check()
+    await page.getByLabel('Speech cut protection').selectOption('normal')
+    await page.getByLabel('Cut sync').selectOption('beat-assisted')
+    await page.getByLabel('Editing pace').selectOption('fast')
+    await page.getByLabel('Output quality').selectOption('draft')
+
+    await electronApp.evaluate(({ dialog }, selectedPath) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selectedPath], bookmarks: [] })
+    }, music)
+    await page.getByRole('button', { name: 'Browse audio' }).click()
+    await page.getByRole('button', { name: 'Create Edit Plan' }).click()
+    await expect(page.getByRole('heading', { name: 'Edit Plan', exact: true })).toBeVisible({ timeout: 180_000 })
+    await expect(page.locator('.edit-plan-item')).toHaveCount(5)
+    await page.getByRole('button', { name: 'Close Edit Plan' }).click()
+
+    await page.getByRole('button', { name: 'Transcript' }).click()
+    await expect(page.getByRole('heading', { name: 'Transcript', exact: true })).toBeVisible()
+    const transcriptionModel = page.locator('.transcription-controls .model-status')
+    await expect(transcriptionModel).toContainText('Balanced - base.en')
+    await expect(transcriptionModel).toContainText('Ready')
+    await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
+    await expect(page.locator('.transcript-document')).toHaveCount(5, { timeout: 180_000 })
+    await expect(page.getByText('No speech detected').first()).toBeVisible()
+    await expect(page.locator('.transcript-word').first()).toBeVisible()
+
+    const firstWord = page.locator('.transcript-document').first().locator('.transcript-word').first()
+    await firstWord.click()
+    await page.getByRole('button', { name: 'Correct Word' }).click()
+    const correction = page.locator('.transcript-word-input').first()
+    await correction.fill('AutoCut')
+    await correction.press('Enter')
+    await expect(page.locator('.transcript-document').first()).toContainText('AutoCut')
+    await page.getByRole('button', { name: 'Review Fillers' }).nth(2).click()
+
+    const editableWords = page.locator('.transcript-document').first().locator('.transcript-word')
+    await editableWords.nth(3).click()
+    await editableWords.nth(4).click({ modifiers: ['Shift'] })
+    await page.getByRole('button', { name: 'Remove From Edit' }).click()
+    await expect(page.getByText('Removed Ranges')).toBeVisible()
+    await expect(page.locator('.pause-list button').first()).toBeVisible()
+    await page.locator('.pause-list button').first().click()
+
+    await page.getByRole('button', { name: 'Captions', exact: true }).click()
+    await page.getByText('Caption Configuration').waitFor()
+    const captionSelects = page.locator('.caption-controls select')
+    await captionSelects.nth(0).selectOption('dynamic')
+    await captionSelects.nth(1).selectOption('burned-in-and-file')
+    await captionSelects.nth(2).selectOption('highlight')
+    await captionSelects.nth(6).selectOption('instagram-reel')
+    await page.getByLabel('Safe Area Overlay').check()
+    await page.getByRole('button', { name: 'Generate Captions' }).click()
+    await expect(page.locator('.caption-inspector-item').first()).toBeVisible()
+    await expect(page.locator('.caption-ready')).toContainText('Preview ready')
+    await expect(page.locator('.safe-area-overlay')).toBeVisible()
+    await page.screenshot({ path: '/tmp/autocut-studio-phase-seven-captions.png', fullPage: true })
+
+    await electronApp.evaluate(({ dialog }, selectedPath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: selectedPath })
+    }, subtitlePath)
+    await page.getByRole('button', { name: 'SRT' }).click()
+    await access(subtitlePath)
+    expect(await readFile(subtitlePath, 'utf8')).toMatch(/^WEBVTT|^1\n/)
+
+    await page.getByRole('button', { name: 'Close Transcript' }).click()
+    await page.getByRole('button', { name: 'Generate Preview' }).click()
+    await expectPreviewReady(page)
+    await page.getByRole('button', { name: 'Review Preview' }).click()
+    await page.getByRole('button', { name: 'Back to Edit' }).first().click()
+    await page.getByRole('button', { name: 'Transcript' }).click()
+    await page.getByRole('button', { name: 'Captions', exact: true }).click()
+    const captionText = page.locator('.caption-inspector-item').first().getByLabel('Caption text')
+    await captionText.fill('AUTOCUT STUDIO captions ready')
+    await page.getByRole('button', { name: 'Close Transcript' }).click()
+    await page.getByRole('button', { name: 'Generate Preview' }).click()
+    await expectPreviewReady(page)
+    await page.getByRole('button', { name: 'Review Preview' }).click()
+    await expect(page.locator('.preview-version')).toHaveCount(2)
+
+    await electronApp.evaluate(({ dialog }, paths) => {
+      dialog.showSaveDialog = async (options) => ({
+        canceled: false,
+        filePath: 'filters' in options && options.filters?.[0]?.extensions?.includes('srt') ? paths.subtitle : paths.video
+      })
+    }, { video: outputPath, subtitle: subtitlePath })
+    await page.getByRole('button', { name: 'Approve & Export' }).click()
+    await expect(page.getByRole('heading', { name: 'Export complete' })).toBeVisible({ timeout: 180_000 })
+    await page.getByRole('button', { name: 'View Export Summary' }).click()
+    expect((await stat(outputPath)).size).toBeGreaterThan(20_000)
+    const { stdout } = await execFileAsync('ffprobe', [
+      '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', outputPath
+    ])
+    const probe = JSON.parse(stdout) as { streams: Array<{ codec_type: string; width?: number; height?: number }>; format: { duration: string } }
+    expect(probe.streams).toEqual(expect.arrayContaining([
+      expect.objectContaining({ codec_type: 'video', width: 360, height: 640 }),
+      expect.objectContaining({ codec_type: 'audio' })
+    ]))
+    expect(Number(probe.format.duration)).toBeGreaterThan(5)
+
+    await page.getByRole('button', { name: 'Back to Project' }).click()
+    await electronApp.evaluate(({ dialog }, selectedPath) => {
+      dialog.showSaveDialog = async () => ({ canceled: false, filePath: selectedPath })
+    }, projectPath)
+    await page.getByRole('button', { name: 'Save Project' }).click()
+    const saved = JSON.parse(await readFile(projectPath, 'utf8')) as {
+      version: number
+      transcriptReferences: unknown[]
+      transcriptCorrections: unknown[]
+      textEdits: unknown[]
+      editPlan: { captionTrack: { chunks: Array<{ text: string }> }; captionMode: string; transcriptEditRevision: number }
+    }
+    expect(saved.version).toBe(6)
+    expect(saved.transcriptReferences).toHaveLength(5)
+    expect(saved.transcriptCorrections).not.toHaveLength(0)
+    expect(saved.textEdits.length).toBeGreaterThanOrEqual(1)
+    expect(saved.editPlan.captionMode).toBe('dynamic')
+    expect(saved.editPlan.captionTrack.chunks[0].text).toBe('AUTOCUT STUDIO captions ready')
+    await page.screenshot({ path: '/tmp/autocut-studio-phase-seven-editor.png', fullPage: true })
+
+    await page.getByRole('button', { name: 'Back to Home' }).click()
+    await electronApp.close()
+    electronApp = await electron.launch({
+      args: ['.', `--user-data-dir=${userDataPath}`],
+      env: { ...launchEnvironment, ELECTRON_DISABLE_SECURITY_WARNINGS: 'true' }
+    })
+    page = await electronApp.firstWindow()
+    await page.locator('.recent-project-open').filter({ hasText: 'Phase 7 Caption Smoke' }).first().click()
+    await expect(page.locator('.clip-card')).toHaveCount(5, { timeout: 30_000 })
+    await page.getByRole('button', { name: 'Transcript' }).click()
+    await expect(page.locator('.transcript-document')).toHaveCount(5)
+    await expect(page.locator('.transcript-document').first()).toContainText('AutoCut')
   } finally {
     if (electronApp) await electronApp.close()
     await rm(fixtureDirectory, { recursive: true, force: true })
