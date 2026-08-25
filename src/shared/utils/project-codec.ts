@@ -76,8 +76,13 @@ function hydrateSettings(value: unknown, legacy = false): ProjectSettings {
     ...defaults.semantic,
     ...(raw.semantic ?? {})
   }
+  const speakers = {
+    ...defaults.speakers,
+    ...(raw.speakers ?? {})
+  }
   const settings: ProjectSettings = {
-    ...defaults, ...raw, output, editing, audio, personAnalysis, transcription, captions, semantic
+    ...defaults, ...raw, output, editing, audio, personAnalysis, transcription, captions, semantic, speakers,
+    captionTemplateId: raw.captionTemplateId ?? defaults.captionTemplateId
   }
   if (settings.audio.soundtrack.tracks.length === 0 && settings.audio.backgroundTrack) {
     settings.audio.soundtrack = {
@@ -288,7 +293,7 @@ export function parseProjectFile(contents: string): ProjectFile {
   }
   if (!parsed || typeof parsed !== 'object') throw new Error('The project file is invalid.')
   const raw = parsed as Record<string, unknown>
-  if (raw.version !== 2 && raw.version !== 3 && raw.version !== 4 && raw.version !== 5 && raw.version !== 6 && raw.version !== 7) {
+  if (raw.version !== 2 && raw.version !== 3 && raw.version !== 4 && raw.version !== 5 && raw.version !== 6 && raw.version !== 7 && raw.version !== 8) {
     throw new Error('This project version is not supported.')
   }
   if (typeof raw.id !== 'string' || !raw.id) throw new Error('The project identifier is missing.')
@@ -301,7 +306,7 @@ export function parseProjectFile(contents: string): ProjectFile {
         .filter((item): item is PreviewVersion => item !== null)
     : []
   return {
-    version: 7,
+    version: 8,
     id: raw.id,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString(),
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
@@ -330,6 +335,12 @@ export function parseProjectFile(contents: string): ProjectFile {
             ? variant.previewHistory.map((preview) => hydratePreviewVersion(preview, raw.id as string)).filter((preview): preview is PreviewVersion => preview !== null)
             : []
         }))
-      : []
+      : [],
+    diarizationReferences: raw.version >= 8 && Array.isArray(raw.diarizationReferences) ? raw.diarizationReferences as ProjectFile['diarizationReferences'] : [],
+    speakerLabels: raw.version >= 8 && Array.isArray(raw.speakerLabels) ? raw.speakerLabels as ProjectFile['speakerLabels'] : [],
+    confidenceReviews: raw.version >= 8 && Array.isArray(raw.confidenceReviews) ? raw.confidenceReviews as ProjectFile['confidenceReviews'] : [],
+    userVocabulary: raw.version >= 8 && Array.isArray(raw.userVocabulary) ? raw.userVocabulary.filter((item): item is string => typeof item === 'string') : [],
+    semanticCollections: raw.version >= 8 && Array.isArray(raw.semanticCollections) ? raw.semanticCollections as ProjectFile['semanticCollections'] : [],
+    projectCaptionTemplates: raw.version >= 8 && Array.isArray(raw.projectCaptionTemplates) ? raw.projectCaptionTemplates as ProjectFile['projectCaptionTemplates'] : []
   }
 }

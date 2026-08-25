@@ -39,7 +39,16 @@ import type {
   TopicSegment,
   HighlightCandidate,
   OutputVariant,
-  SemanticProjectSettings
+  SemanticProjectSettings,
+  ConfidenceReviewRecord,
+  DiarizationModelStatus,
+  DiarizationProgress,
+  SemanticCollection,
+  SpeakerDiarizationReference,
+  SpeakerDiarizationResult,
+  SpeakerLabel,
+  SpeakerProjectSettings,
+  CaptionTemplate
 } from '@shared/types'
 import { updateOutputVariant as reviseOutputVariant } from '@shared/utils/output-variants'
 import {
@@ -104,6 +113,17 @@ interface AppState {
   semanticHints: SemanticHintRange[]
   highlightCandidates: HighlightCandidate[]
   outputVariants: OutputVariant[]
+  diarizationStatus: DiarizationModelStatus | null
+  diarizationResults: SpeakerDiarizationResult[]
+  diarizationReferences: SpeakerDiarizationReference[]
+  diarizationProgress: DiarizationProgress | null
+  activeDiarizationJobId: string | null
+  diarizationError: string | null
+  speakerLabels: SpeakerLabel[]
+  confidenceReviews: ConfidenceReviewRecord[]
+  userVocabulary: string[]
+  semanticCollections: SemanticCollection[]
+  projectCaptionTemplates: CaptionTemplate[]
   setEditPlan: (plan: RenderPlan) => void
   updateEditPlan: (updater: (plan: RenderPlan) => RenderPlan) => void
   showEditPlan: () => void
@@ -176,6 +196,20 @@ interface AppState {
   addOutputVariants: (variants: OutputVariant[]) => void
   updateOutputVariant: (id: string, patch: Partial<OutputVariant>) => void
   removeOutputVariant: (id: string) => void
+  setDiarizationStatus: (status: DiarizationModelStatus | null) => void
+  beginDiarization: (jobId: string) => void
+  setDiarizationProgress: (progress: DiarizationProgress) => void
+  completeDiarization: (results: SpeakerDiarizationResult[], references: SpeakerDiarizationReference[], transcripts: Transcript[]) => void
+  setLoadedDiarization: (results: SpeakerDiarizationResult[]) => void
+  failDiarization: (message: string) => void
+  updateSpeakerSettings: (patch: Partial<SpeakerProjectSettings>) => void
+  renameSpeaker: (speakerId: string, displayName: string) => void
+  mergeSpeakers: (sourceId: string, targetId: string) => void
+  splitSpeakerOccurrence: (speakerId: string, sourceClipId: string, segmentId: string) => void
+  setConfidenceReview: (record: ConfidenceReviewRecord) => void
+  setUserVocabulary: (terms: string[]) => void
+  setSemanticCollections: (collections: SemanticCollection[]) => void
+  setProjectCaptionTemplates: (templates: CaptionTemplate[]) => void
 }
 
 function freshProjectIdentity(): { projectId: string; projectCreatedAt: string } {
@@ -233,6 +267,17 @@ export const useAppStore = create<AppState>((set) => ({
   semanticHints: [],
   highlightCandidates: [],
   outputVariants: [],
+  diarizationStatus: null,
+  diarizationResults: [],
+  diarizationReferences: [],
+  diarizationProgress: null,
+  activeDiarizationJobId: null,
+  diarizationError: null,
+  speakerLabels: [],
+  confidenceReviews: [],
+  userVocabulary: [],
+  semanticCollections: [],
+  projectCaptionTemplates: [],
   startProject: () => set({
     screen: 'editor',
     projectSettings: createDefaultProjectSettings(),
@@ -273,7 +318,9 @@ export const useAppStore = create<AppState>((set) => ({
     topics: [],
     semanticHints: [],
     highlightCandidates: [],
-    outputVariants: []
+    outputVariants: [],
+    diarizationResults: [], diarizationReferences: [], diarizationProgress: null, activeDiarizationJobId: null,
+    diarizationError: null, speakerLabels: [], confidenceReviews: [], userVocabulary: [], semanticCollections: [], projectCaptionTemplates: []
   }),
   loadProject: (project, projectFilePath, clips, importFailures) => {
     const latest = [...project.previewHistory]
@@ -320,7 +367,17 @@ export const useAppStore = create<AppState>((set) => ({
     topics: project.topics,
     semanticHints: project.semanticHints,
     highlightCandidates: project.highlightCandidates,
-    outputVariants: project.outputVariants
+    outputVariants: project.outputVariants,
+    diarizationResults: [],
+    diarizationReferences: project.diarizationReferences,
+    diarizationProgress: null,
+    activeDiarizationJobId: null,
+    diarizationError: null,
+    speakerLabels: project.speakerLabels,
+    confidenceReviews: project.confidenceReviews,
+    userVocabulary: project.userVocabulary,
+    semanticCollections: project.semanticCollections,
+    projectCaptionTemplates: project.projectCaptionTemplates
     })
   },
   setEditPlan: (editPlan) => set((state) => ({
@@ -528,6 +585,12 @@ export const useAppStore = create<AppState>((set) => ({
     semanticHints: saved.project.semanticHints,
     highlightCandidates: saved.project.highlightCandidates,
     outputVariants: saved.project.outputVariants,
+    diarizationReferences: saved.project.diarizationReferences,
+    speakerLabels: saved.project.speakerLabels,
+    confidenceReviews: saved.project.confidenceReviews,
+    userVocabulary: saved.project.userVocabulary,
+    semanticCollections: saved.project.semanticCollections,
+    projectCaptionTemplates: saved.project.projectCaptionTemplates,
     projectDirty: false
   }),
   setRecentProjects: (recentProjects) => set({ recentProjects }),
@@ -875,7 +938,7 @@ export const useAppStore = create<AppState>((set) => ({
   })),
   setOutputVariants: (outputVariants) => set({ outputVariants, projectDirty: true }),
   addOutputVariants: (variants) => set((state) => ({
-    outputVariants: [...state.outputVariants, ...variants.filter((variant) => !state.outputVariants.some((item) => item.platformPresetId === variant.platformPresetId))],
+    outputVariants: [...state.outputVariants, ...variants.filter((variant) => !state.outputVariants.some((item) => item.id === variant.id))],
     projectDirty: true
   })),
   updateOutputVariant: (id, patch) => set((state) => ({
@@ -884,5 +947,70 @@ export const useAppStore = create<AppState>((set) => ({
   })),
   removeOutputVariant: (id) => set((state) => ({
     outputVariants: state.outputVariants.filter((variant) => variant.id !== id), projectDirty: true
-  }))
+  })),
+  setDiarizationStatus: (diarizationStatus) => set({ diarizationStatus }),
+  beginDiarization: (activeDiarizationJobId) => set({ activeDiarizationJobId, diarizationProgress: null, diarizationError: null }),
+  setDiarizationProgress: (diarizationProgress) => set((state) =>
+    state.activeDiarizationJobId === diarizationProgress.jobId ? { diarizationProgress } : state),
+  completeDiarization: (diarizationResults, diarizationReferences, transcripts) => set((state) => {
+    const discovered = [...new Set(diarizationResults.flatMap((result) => result.segments.map((segment) => segment.speakerId)))]
+    const speakerLabels = [...state.speakerLabels]
+    for (const speakerId of discovered) if (!speakerLabels.some((label) => label.speakerId === speakerId)) {
+      speakerLabels.push({ speakerId, displayName: `Speaker ${speakerLabels.length + 1}`, mergedInto: null, accent: speakerLabels.length % 2 ? 'accent-b' : 'accent-a' })
+    }
+    return { diarizationResults, diarizationReferences, transcripts, speakerLabels,
+      activeDiarizationJobId: null, diarizationProgress: null, diarizationError: null, projectDirty: true }
+  }),
+  setLoadedDiarization: (diarizationResults) => set({ diarizationResults }),
+  failDiarization: (diarizationError) => set({ diarizationError, activeDiarizationJobId: null, diarizationProgress: null }),
+  updateSpeakerSettings: (patch) => set((state) => ({
+    projectSettings: { ...state.projectSettings, speakers: { ...state.projectSettings.speakers, ...patch } }, projectDirty: true
+  })),
+  renameSpeaker: (speakerId, displayName) => set((state) => ({
+    speakerLabels: state.speakerLabels.map((label) => label.speakerId === speakerId ? { ...label, displayName: displayName.trim() || label.displayName } : label), projectDirty: true
+  })),
+  mergeSpeakers: (sourceId, targetId) => set((state) => ({
+    speakerLabels: state.speakerLabels.map((label) => label.speakerId === sourceId ? { ...label, mergedInto: targetId } : label),
+    transcripts: state.transcripts.map((transcript) => ({ ...transcript,
+      words: transcript.words.map((word) => word.speakerId === sourceId ? { ...word, speakerId: targetId } : word),
+      segments: transcript.segments.map((segment) => ({ ...segment, speakerId: segment.speakerId === sourceId ? targetId : segment.speakerId,
+        words: segment.words.map((word) => word.speakerId === sourceId ? { ...word, speakerId: targetId } : word) })) })),
+    semanticAnalysis: state.semanticAnalysis ? { ...state.semanticAnalysis, chunks: state.semanticAnalysis.chunks.map((chunk) => ({
+      ...chunk, speakerIds: [...new Set((chunk.speakerIds ?? []).map((id) => id === sourceId ? targetId : id))]
+    })) } : null,
+    projectDirty: true
+  })),
+  splitSpeakerOccurrence: (speakerId, sourceClipId, segmentId) => set((state) => {
+    const region = state.diarizationResults.find((result) => result.sourceClipId === sourceClipId)?.segments.find((segment) => segment.id === segmentId)
+    if (!region) return state
+    const newSpeakerId = `${sourceClipId}:manual-${crypto.randomUUID().slice(0, 8)}`
+    const diarizationResults = state.diarizationResults.map((result) => result.sourceClipId !== sourceClipId ? result : ({
+      ...result, speakerCount: result.speakerCount + 1,
+      segments: result.segments.map((segment) => segment.id === segmentId ? { ...segment, speakerId: newSpeakerId } : segment)
+    }))
+    const transcripts = state.transcripts.map((transcript) => {
+      if (transcript.sourceClipId !== sourceClipId) return transcript
+      const words = transcript.words.map((word) => word.speakerId === speakerId && Math.min(word.end, region.end) - Math.max(word.start, region.start) > (word.end - word.start) * 0.5 ? { ...word, speakerId: newSpeakerId } : word)
+      const byId = new Map(words.map((word) => [word.id, word]))
+      const segments = transcript.segments.map((segment) => {
+        const segmentWords = segment.words.map((word) => byId.get(word.id) ?? word)
+        const counts = new Map<string, number>()
+        segmentWords.forEach((word) => { if (word.speakerId) counts.set(word.speakerId, (counts.get(word.speakerId) ?? 0) + 1) })
+        return { ...segment, words: segmentWords, speakerId: [...counts].sort((left, right) => right[1] - left[1])[0]?.[0] ?? null }
+      })
+      return { ...transcript, words, segments, revision: transcript.revision + 1, updatedAt: new Date().toISOString() }
+    })
+    return {
+      diarizationResults, transcripts,
+      speakerLabels: [...state.speakerLabels, { speakerId: newSpeakerId, displayName: `Speaker ${state.speakerLabels.length + 1}`, mergedInto: null, accent: 'accent-c' }],
+      semanticAnalysis: null, semanticAnalysisReference: null, projectDirty: true,
+      editPlan: state.editPlan ? { ...state.editPlan, captionTrack: null } : null
+    }
+  }),
+  setConfidenceReview: (record) => set((state) => ({
+    confidenceReviews: [...state.confidenceReviews.filter((item) => !(item.transcriptId === record.transcriptId && item.wordId === record.wordId)), record], projectDirty: true
+  })),
+  setUserVocabulary: (userVocabulary) => set({ userVocabulary, projectDirty: true }),
+  setSemanticCollections: (semanticCollections) => set({ semanticCollections, projectDirty: true }),
+  setProjectCaptionTemplates: (projectCaptionTemplates) => set({ projectCaptionTemplates, projectDirty: true })
 }))

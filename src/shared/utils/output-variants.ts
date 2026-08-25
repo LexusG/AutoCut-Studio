@@ -29,9 +29,10 @@ export function createOutputVariant(
     captionSettings.subtitleOutput = 'burned-in'
     captionSettings.style = {
       ...captionSettings.style,
-      preset: social ? 'bold' : 'clean',
+      preset: social ? 'social-bold' : linkedIn ? 'minimal' : 'clean',
       position: social ? 'lower-middle' : 'bottom'
     }
+    captionSettings.templateId = social ? 'social-bold' : linkedIn ? 'minimal' : 'clean'
   }
   return {
     id: crypto.randomUUID(),

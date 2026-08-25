@@ -201,15 +201,25 @@ export async function regeneratePreviewThumbnail(
   const root = previewRoot(projectId, version.id)
   const outputPath = join(root, 'preview.mp4')
   const thumbnailPath = join(root, 'thumbnail.jpg')
-  await runProcess(ffmpegPath, [
-    '-hide_banner', '-loglevel', 'error',
-    '-ss', Math.min(version.artifact.duration / 2, Math.max(0, version.artifact.duration - 0.1)).toFixed(3),
-    '-i', outputPath,
-    '-frames:v', '1',
-    '-vf', 'scale=320:-2',
-    '-q:v', '3',
-    '-y', thumbnailPath
-  ])
+  let ready = false
+  let lastError: unknown = new Error('FFmpeg did not create a preview thumbnail.')
+  for (const seek of [Math.min(version.artifact.duration / 2, Math.max(0, version.artifact.duration - 0.1)), 0]) {
+    try {
+      await rm(thumbnailPath, { force: true })
+      await runProcess(ffmpegPath, [
+        '-hide_banner', '-loglevel', 'error',
+        '-ss', seek.toFixed(3),
+        '-i', outputPath,
+        '-frames:v', '1',
+        '-vf', 'scale=320:-2',
+        '-q:v', '3',
+        '-y', thumbnailPath
+      ])
+      const file = await stat(thumbnailPath)
+      if (file.isFile() && file.size > 0) { ready = true; break }
+    } catch (error) { lastError = error }
+  }
+  if (!ready) throw lastError
   allowMediaPath(thumbnailPath)
   const thumbnailUrl = createMediaUrl(thumbnailPath)
   return {

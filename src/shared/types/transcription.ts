@@ -20,6 +20,9 @@ export interface TranscriptWord {
   confidence: number | null
   filler: boolean
   excluded: boolean
+  speakerId?: string | null
+  confidenceLevel?: import('./phase9').ConfidenceLevel
+  reviewState?: import('./phase9').ConfidenceReviewState
 }
 
 export interface TranscriptSegment {
@@ -30,6 +33,7 @@ export interface TranscriptSegment {
   originalText: string
   words: TranscriptWord[]
   confidence: number | null
+  speakerId?: string | null
 }
 
 export interface Transcript {
@@ -146,6 +150,7 @@ export interface TranscriptionRequest {
   projectId: string
   sources: TranscriptionSource[]
   settings: TranscriptionSettings
+  vocabulary?: string[]
 }
 
 export interface TranscriptionResult {
@@ -157,7 +162,7 @@ export interface TranscriptionResult {
 
 export type CaptionMode = 'off' | 'standard' | 'dynamic'
 export type SubtitleOutput = 'none' | 'burned-in' | 'file-only' | 'burned-in-and-file'
-export type CaptionStylePreset = 'clean' | 'bold' | 'minimal' | 'highlight'
+export type CaptionStylePreset = 'clean' | 'bold' | 'minimal' | 'highlight' | 'social-bold' | 'karaoke' | 'interview' | 'documentary' | 'lower-third'
 export type CaptionPosition = 'top' | 'upper-middle' | 'center' | 'lower-middle' | 'bottom'
 export type CaptionAnimation = 'none' | 'fade' | 'pop'
 export type CaptionHighlight = 'bold' | 'scale' | 'color' | 'background'
@@ -190,6 +195,8 @@ export interface CaptionSettings {
   highlightSpokenWord: boolean
   highlightBehavior: CaptionHighlight
   animation: CaptionAnimation
+  templateId?: string
+  showSpeakerNames?: boolean
 }
 
 export interface CaptionWord {
@@ -197,6 +204,8 @@ export interface CaptionWord {
   text: string
   start: number
   end: number
+  speakerId?: string | null
+  speakerLabel?: string | null
 }
 
 export interface CaptionChunk {
@@ -207,6 +216,8 @@ export interface CaptionChunk {
   words: CaptionWord[]
   styleOverride: Partial<CaptionStyle> | null
   deleted: boolean
+  speakerId?: string | null
+  speakerLabel?: string | null
 }
 
 export interface CaptionTrack {
@@ -227,4 +238,5 @@ export interface CaptionBuildRequest {
   plan: import('./render').RenderPlan
   transcripts: Transcript[]
   settings: CaptionSettings
+  speakerLabels?: import('./phase9').SpeakerLabel[]
 }

@@ -7,13 +7,14 @@ import { applicationStoragePaths } from '../filesystem/application-storage'
 export async function transcriptCacheKey(
   source: TranscriptionSource,
   settings: TranscriptionSettings,
-  providerVersion: string
+  providerVersion: string,
+  vocabulary: string[] = []
 ): Promise<string> {
   const file = await stat(source.path)
   return createHash('sha256').update(JSON.stringify({
     path: source.path, size: file.size, modifiedAt: file.mtimeMs, duration: source.duration,
     model: settings.quality, language: settings.language, provider: settings.provider,
-    providerVersion, ranges: source.ranges ?? null
+    providerVersion, ranges: source.ranges ?? null, vocabulary: vocabulary.map((term) => term.trim()).filter(Boolean).sort()
   })).digest('hex')
 }
 

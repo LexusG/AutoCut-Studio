@@ -8,6 +8,7 @@ export interface ProviderInput {
   audioPath: string
   timestampOffset: number
   settings: TranscriptionSettings
+  vocabulary?: string[]
   signal: AbortSignal
   onProgress?: (percent: number) => void
 }

@@ -50,6 +50,7 @@ export interface SemanticTranscriptChunk {
   text: string
   wordIds: string[]
   segmentIds: string[]
+  speakerIds: string[]
   embeddingId: string
 }
 
@@ -144,6 +145,8 @@ export interface SemanticSearchRequest {
   query: string
   mode: SemanticSearchMode
   limit?: number
+  speakerId?: string | null
+  sourceClipId?: string | null
 }
 
 export interface SemanticSearchResult {
@@ -157,6 +160,7 @@ export interface SemanticSearchResult {
   score: number
   relevance: SemanticMatchLabel
   topicId: string | null
+  speakerId?: string | null
 }
 
 export interface SemanticHintRange {
@@ -199,6 +203,7 @@ export interface HighlightCandidate {
   alternativeIds: string[]
   thumbnailPath: string | null
   thumbnailUrl: string | null
+  speakerId?: string | null
 }
 
 export interface HighlightDiscoveryRequest {
@@ -208,6 +213,9 @@ export interface HighlightDiscoveryRequest {
   editGoalStrength: EditGoalStrength
   semanticHints: SemanticHintRange[]
   topicSelections: Array<{ topicId: string; importance: TopicImportance }>
+  speakerFilter?: string | null
+  preferredSpeakerId?: string | null
+  speakerBalance?: import('./phase9').SpeakerBalance
 }
 
 export interface HighlightReelRequest {

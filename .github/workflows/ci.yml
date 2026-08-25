@@ -1,0 +1,24 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux-x64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run runtime:prepare:x64
+      - run: test -x .runtime-stage/linux-x64/ffmpeg/ffmpeg
+      - run: test -x .runtime-stage/linux-x64/ffprobe/ffprobe
+      - run: test -x .runtime-stage/linux-x64/whisper/whisper-cli
+      - run: npm run package:dir:x64

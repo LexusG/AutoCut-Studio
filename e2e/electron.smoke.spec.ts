@@ -205,7 +205,7 @@ test('completes the realistic Phase 6 content-aware and manual Edit Plan workflo
       }
     }
     expect(savedBeforeRender).toMatchObject({
-      version: 7,
+      version: 8,
       settings: {
         output: { width: 360, height: 640 },
         editing: { selectionMode: 'smart', analysisQuality: 'fast' },
@@ -545,7 +545,7 @@ test('completes the Phase 7 local transcript caption and text editing workflow',
       textEdits: unknown[]
       editPlan: { captionTrack: { chunks: Array<{ text: string }> }; captionMode: string; transcriptEditRevision: number }
     }
-    expect(saved.version).toBe(7)
+    expect(saved.version).toBe(8)
     expect(saved.transcriptReferences).toHaveLength(5)
     expect(saved.transcriptCorrections).not.toHaveLength(0)
     expect(saved.textEdits.length).toBeGreaterThanOrEqual(1)

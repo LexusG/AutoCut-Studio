@@ -1,10 +1,13 @@
-import { Clock3, FolderOpen, Plus, Trash2 } from 'lucide-react'
+import { Clock3, FolderOpen, Plus, Settings, Trash2 } from 'lucide-react'
+import { useState } from 'react'
 import { BrandMark } from '../components/BrandMark'
 import { FfmpegNotice } from '../components/FfmpegNotice'
 import { useAppStore } from '../stores/app-store'
 import { formatRecentDate, sortRecentProjects, useProjectFiles } from '../hooks/use-project-files'
+import { SystemPanel } from '../components/SystemPanel'
 
 export function HomePage(): React.JSX.Element {
+  const [systemOpen, setSystemOpen] = useState(false)
   const startProject = useAppStore((state) => state.startProject)
   const ffmpegStatus = useAppStore((state) => state.ffmpegStatus)
   const recentProjects = useAppStore((state) => state.recentProjects)
@@ -14,7 +17,7 @@ export function HomePage(): React.JSX.Element {
     <main className="home-page">
       <header className="home-header">
         <BrandMark />
-        <FfmpegNotice status={ffmpegStatus} />
+        <div className="home-system-actions"><FfmpegNotice status={ffmpegStatus} /><button className="icon-button" type="button" title="Local AI and Processing" aria-label="Local AI and Processing" onClick={() => setSystemOpen(true)}><Settings size={18} /></button></div>
       </header>
 
       <section className="home-intro" aria-labelledby="home-title">
@@ -65,6 +68,7 @@ export function HomePage(): React.JSX.Element {
       </section>
 
       <footer className="home-footer">Local processing. Your footage stays on this computer.</footer>
+      <SystemPanel open={systemOpen} close={() => setSystemOpen(false)} />
     </main>
   )
 }

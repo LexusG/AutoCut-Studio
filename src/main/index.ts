@@ -3,6 +3,7 @@ import { app, BrowserWindow, protocol } from 'electron'
 import { registerIpcHandlers } from './ipc/register-handlers'
 import { registerMediaProtocol } from './services/filesystem/media-access'
 import { registerAppAssetProtocol } from './services/filesystem/app-asset-access'
+import { initializeProcessingPreferences } from './services/runtime/processing-preferences'
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -57,7 +58,8 @@ function createWindow(): BrowserWindow {
   return window
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await initializeProcessingPreferences()
   registerMediaProtocol()
   registerAppAssetProtocol()
   registerIpcHandlers()

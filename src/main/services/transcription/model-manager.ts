@@ -1,6 +1,5 @@
 import { access, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { app } from 'electron'
 import type {
   TranscriptionLanguage,
   TranscriptionModelInfo,
@@ -9,6 +8,7 @@ import type {
 } from '@shared/types'
 import { applicationStoragePaths } from '../filesystem/application-storage'
 import { downloadManagedModelFile } from '../models/managed-model-downloader'
+import { resolveRuntimeExecutable } from '../runtime/path-resolver'
 
 const MODEL_SPECS = {
   tiny: { bytes: 75_000_000, purpose: 'Fast multilingual transcription' },
@@ -40,15 +40,7 @@ async function exists(path: string): Promise<boolean> {
 }
 
 export async function findWhisperExecutable(): Promise<string | null> {
-  const candidates = [
-    process.env.AUTOCUT_WHISPER_CPP,
-    app.isPackaged ? join(process.resourcesPath, 'resources', 'whisper.cpp', 'whisper-cli') : null,
-    join(app.getAppPath(), 'resources', 'whisper.cpp', 'whisper-cli'),
-    '/usr/local/bin/whisper-cli',
-    '/usr/bin/whisper-cli'
-  ].filter((value): value is string => Boolean(value))
-  for (const path of candidates) if (await exists(path)) return path
-  return null
+  return (await resolveRuntimeExecutable('whisper-cpp'))?.path ?? null
 }
 
 async function infoFor(name: keyof typeof MODEL_SPECS): Promise<TranscriptionModelInfo> {

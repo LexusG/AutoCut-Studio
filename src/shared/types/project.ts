@@ -36,6 +36,14 @@ import type {
   SemanticProjectSettings,
   TopicSegment
 } from './semantic'
+import type {
+  CaptionTemplate,
+  ConfidenceReviewRecord,
+  SemanticCollection,
+  SpeakerDiarizationReference,
+  SpeakerLabel,
+  SpeakerProjectSettings
+} from './phase9'
 
 export type PlatformId = 'instagram' | 'youtube' | 'linkedin' | 'custom'
 export type Orientation = 'landscape' | 'portrait' | 'square' | 'source'
@@ -178,10 +186,12 @@ export interface ProjectSettings {
   transcription: TranscriptionSettings
   captions: CaptionSettings
   semantic: SemanticProjectSettings
+  speakers: SpeakerProjectSettings
+  captionTemplateId: string
 }
 
 export interface ProjectFile {
-  version: 7
+  version: 8
   id: string
   createdAt: string
   updatedAt: string
@@ -198,6 +208,12 @@ export interface ProjectFile {
   semanticHints: SemanticHintRange[]
   highlightCandidates: HighlightCandidate[]
   outputVariants: OutputVariant[]
+  diarizationReferences: SpeakerDiarizationReference[]
+  speakerLabels: SpeakerLabel[]
+  confidenceReviews: ConfidenceReviewRecord[]
+  userVocabulary: string[]
+  semanticCollections: SemanticCollection[]
+  projectCaptionTemplates: CaptionTemplate[]
 }
 
 export interface PreviewVersion {

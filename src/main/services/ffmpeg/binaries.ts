@@ -1,39 +1,20 @@
-import { access } from 'node:fs/promises'
-import { constants } from 'node:fs'
-import { delimiter, join } from 'node:path'
 import type { FfmpegStatus, ToolStatus } from '@shared/types'
 import { runProcess } from './process'
-
-function executableCandidates(name: string): string[] {
-  const paths = (process.env.PATH ?? '').split(delimiter).filter(Boolean)
-  return paths.map((directory) => join(directory, name))
-}
-
-async function findExecutable(name: string): Promise<string | null> {
-  for (const candidate of executableCandidates(name)) {
-    try {
-      await access(candidate, constants.X_OK)
-      return candidate
-    } catch {
-      // Continue through PATH entries.
-    }
-  }
-  return null
-}
+import { resolveRuntimeExecutable } from '../runtime/path-resolver'
 
 async function inspectTool(name: 'ffmpeg' | 'ffprobe'): Promise<ToolStatus> {
-  const path = await findExecutable(name)
-  if (!path) return { available: false, path: null, version: null }
+  const candidate = await resolveRuntimeExecutable(name)
+  if (!candidate) return { available: false, path: null, version: null }
 
   try {
-    const output = await runProcess(path, ['-version'])
+    const output = await runProcess(candidate.path, ['-version'])
     return {
       available: true,
-      path,
+      path: candidate.path,
       version: output.stdout.split('\n')[0]?.trim() || null
     }
   } catch {
-    return { available: false, path, version: null }
+    return { available: false, path: candidate.path, version: null }
   }
 }
 
@@ -44,4 +25,8 @@ export function detectFfmpeg(): Promise<FfmpegStatus> {
     ([ffmpeg, ffprobe]) => ({ ffmpeg, ffprobe, ready: ffmpeg.available && ffprobe.available })
   )
   return statusPromise
+}
+
+export function clearFfmpegStatusCache(): void {
+  statusPromise = null
 }

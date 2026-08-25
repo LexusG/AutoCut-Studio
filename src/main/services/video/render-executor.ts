@@ -176,6 +176,7 @@ async function normalizeSegment(
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
     '-crf', '18',
+    '-r', options.plan.output.frameRate.toString(),
     '-c:a', 'aac',
     '-b:a', '160k',
     '-ar', '48000',
@@ -199,7 +200,7 @@ export function transitionFilters(plan: RenderPlan): { filters: string[]; video:
   const filters: string[] = []
   if (plan.segments.length === 1) {
     filters.push(
-      '[0:v:0]settb=AVTB,setpts=PTS-STARTPTS[basev]',
+      `[0:v:0]fps=${plan.output.frameRate},settb=AVTB,setpts=PTS-STARTPTS[basev]`,
       '[0:a:0]asetpts=PTS-STARTPTS[basea]'
     )
     return { filters, video: 'basev', audio: 'basea' }
@@ -214,14 +215,8 @@ export function transitionFilters(plan: RenderPlan): { filters: string[]; video:
     return { filters, video: 'basev', audio: 'basea' }
   }
 
-  plan.segments.forEach((_segment, index) => {
-    filters.push(
-      `[${index}:v:0]settb=AVTB,setpts=PTS-STARTPTS[v${index}]`,
-      `[${index}:a:0]asetpts=PTS-STARTPTS[a${index}]`
-    )
-  })
-  let videoLabel = 'v0'
-  let audioLabel = 'a0'
+  let videoLabel = '0:v:0'
+  let audioLabel = '0:a:0'
   let accumulatedDuration = plan.segments[0].duration
   for (let index = 1; index < plan.segments.length; index += 1) {
     const transition = plan.segments[index - 1].transitionToNext
@@ -229,9 +224,10 @@ export function transitionFilters(plan: RenderPlan): { filters: string[]; video:
     const nextVideo = index === plan.segments.length - 1 ? 'basev' : `vx${index}`
     const nextAudio = index === plan.segments.length - 1 ? 'basea' : `ax${index}`
     if (transitionDuration <= 0) {
+      const frameDuration = 1 / plan.output.frameRate
       filters.push(
-        `[${videoLabel}][v${index}]concat=n=2:v=1:a=0[${nextVideo}]`,
-        `[${audioLabel}][a${index}]concat=n=2:v=0:a=1[${nextAudio}]`
+        `[${videoLabel}][${index}:v:0]xfade=transition=custom:duration=${frameDuration.toFixed(6)}:offset=${accumulatedDuration.toFixed(3)}:expr='B'[${nextVideo}]`,
+        `[${audioLabel}][${index}:a:0]acrossfade=d=${frameDuration.toFixed(6)}:c1=nofade:c2=nofade[${nextAudio}]`
       )
       accumulatedDuration += plan.segments[index].duration
       videoLabel = nextVideo
@@ -243,8 +239,8 @@ export function transitionFilters(plan: RenderPlan): { filters: string[]; video:
       : 'fade'
     const offset = Math.max(0, accumulatedDuration - transitionDuration)
     filters.push(
-      `[${videoLabel}][v${index}]xfade=transition=${transitionName}:duration=${transitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}[${nextVideo}]`,
-      `[${audioLabel}][a${index}]acrossfade=d=${transitionDuration.toFixed(3)}:c1=tri:c2=tri[${nextAudio}]`
+      `[${videoLabel}][${index}:v:0]xfade=transition=${transitionName}:duration=${transitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}[${nextVideo}]`,
+      `[${audioLabel}][${index}:a:0]acrossfade=d=${transitionDuration.toFixed(3)}:c1=tri:c2=tri[${nextAudio}]`
     )
     accumulatedDuration += plan.segments[index].duration - transitionDuration
     videoLabel = nextVideo
@@ -310,6 +306,7 @@ function compositionArgs(
     '-c:v', 'libx264',
     '-preset', quality.preset,
     '-crf', quality.crf.toString(),
+    '-r', options.plan.output.frameRate.toString(),
     '-t', options.plan.expectedDuration.toFixed(3),
     '-movflags', '+faststart',
     videoPath,

@@ -1,4 +1,4 @@
-import { ArrowLeft, ClipboardList, FileText, Play, Save, Sparkles } from 'lucide-react'
+import { ArrowLeft, ClipboardList, FileText, Play, Save, Settings, Sparkles } from 'lucide-react'
 import { useState } from 'react'
 import { BrandMark } from '../components/BrandMark'
 import { FfmpegNotice } from '../components/FfmpegNotice'
@@ -8,12 +8,14 @@ import { RenderDialog } from '../components/RenderDialog'
 import { SettingsPanel } from '../components/SettingsPanel'
 import { EditPlanPanel } from '../components/EditPlanPanel'
 import { TranscriptPanel } from '../components/TranscriptPanel'
+import { SystemPanel } from '../components/SystemPanel'
 import { useVideoRender } from '../hooks/use-video-render'
 import { useProjectFiles } from '../hooks/use-project-files'
 import { useAppStore } from '../stores/app-store'
 
 export function EditorPage(): React.JSX.Element {
   const [transcriptOpen, setTranscriptOpen] = useState(false)
+  const [systemOpen, setSystemOpen] = useState(false)
   const returnHome = useAppStore((state) => state.returnHome)
   const projectName = useAppStore((state) => state.projectSettings.name)
   const setProjectName = useAppStore((state) => state.setProjectName)
@@ -49,6 +51,7 @@ export function EditorPage(): React.JSX.Element {
             </span>
           )}
           <FfmpegNotice status={ffmpegStatus} />
+          <button className="icon-button" type="button" title="Local AI and Processing" aria-label="Local AI and Processing" onClick={() => setSystemOpen(true)}><Settings size={18} /></button>
           <button className="button button-secondary" type="button" onClick={() => void save()} disabled={projectBusy || isRendering}>
             <Save size={16} /> Save Project
           </button>
@@ -74,6 +77,7 @@ export function EditorPage(): React.JSX.Element {
       <EditPlanPanel />
       <TranscriptPanel open={transcriptOpen} close={() => setTranscriptOpen(false)} />
       <RenderDialog onCancel={cancel} />
+      <SystemPanel open={systemOpen} close={() => setSystemOpen(false)} />
     </main>
   )
 }

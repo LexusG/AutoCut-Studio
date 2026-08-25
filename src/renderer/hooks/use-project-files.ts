@@ -40,12 +40,19 @@ export function useProjectFiles(): ProjectFileActions {
   const semanticHints = useAppStore((state) => state.semanticHints)
   const highlightCandidates = useAppStore((state) => state.highlightCandidates)
   const outputVariants = useAppStore((state) => state.outputVariants)
+  const diarizationReferences = useAppStore((state) => state.diarizationReferences)
+  const speakerLabels = useAppStore((state) => state.speakerLabels)
+  const confidenceReviews = useAppStore((state) => state.confidenceReviews)
+  const userVocabulary = useAppStore((state) => state.userVocabulary)
+  const semanticCollections = useAppStore((state) => state.semanticCollections)
+  const projectCaptionTemplates = useAppStore((state) => state.projectCaptionTemplates)
   const markSaved = useAppStore((state) => state.markProjectSaved)
   const loadProject = useAppStore((state) => state.loadProject)
   const setRecentProjects = useAppStore((state) => state.setRecentProjects)
   const setImporting = useAppStore((state) => state.setImporting)
   const setTranscripts = useAppStore((state) => state.setTranscripts)
   const setLoadedSemanticAnalysis = useAppStore((state) => state.setLoadedSemanticAnalysis)
+  const setLoadedDiarization = useAppStore((state) => state.setLoadedDiarization)
 
   const clearFeedback = useCallback(() => {
     setMessage(null)
@@ -74,13 +81,14 @@ export function useProjectFiles(): ProjectFileActions {
         loadProject(loaded.project, loaded.filePath, imported.clips, imported.failures)
         setTranscripts(await window.autoCut.loadTranscripts(loaded.project.id, loaded.project.transcriptReferences))
         setLoadedSemanticAnalysis(await window.autoCut.loadSemanticAnalysis(loaded.project.id, loaded.project.semanticAnalysis))
+        setLoadedDiarization(await window.autoCut.loadDiarization(loaded.project.id, loaded.project.diarizationReferences))
         setMessage(`Opened ${loaded.project.settings.name}`)
         await refreshRecent()
       } finally {
         setImporting(false)
       }
     },
-    [loadProject, refreshRecent, setImporting, setLoadedSemanticAnalysis, setTranscripts]
+    [loadProject, refreshRecent, setImporting, setLoadedDiarization, setLoadedSemanticAnalysis, setTranscripts]
   )
 
   const chooseAndOpen = useCallback(async (): Promise<boolean> => {
@@ -135,7 +143,8 @@ export function useProjectFiles(): ProjectFileActions {
         previewHistory,
         editPlan,
         { transcriptReferences, transcriptCorrections, textEdits, transcriptEditRevision },
-        { semanticAnalysis: semanticAnalysisReference, topics, semanticHints, highlightCandidates, outputVariants }
+        { semanticAnalysis: semanticAnalysisReference, topics, semanticHints, highlightCandidates, outputVariants },
+        { diarizationReferences, speakerLabels, confidenceReviews, userVocabulary, semanticCollections, projectCaptionTemplates }
       )
       const saved = await window.autoCut.saveProject(project, projectFilePath)
       if (!saved) return false
@@ -149,7 +158,7 @@ export function useProjectFiles(): ProjectFileActions {
     } finally {
       setBusy(false)
     }
-  }, [clearFeedback, clips, editPlan, highlightCandidates, markSaved, outputVariants, previewHistory, projectCreatedAt, projectFilePath, projectId, refreshRecent, semanticAnalysisReference, semanticHints, settings, textEdits, topics, transcriptCorrections, transcriptEditRevision, transcriptReferences])
+  }, [clearFeedback, clips, confidenceReviews, diarizationReferences, editPlan, highlightCandidates, markSaved, outputVariants, previewHistory, projectCaptionTemplates, projectCreatedAt, projectFilePath, projectId, refreshRecent, semanticAnalysisReference, semanticCollections, semanticHints, settings, speakerLabels, textEdits, topics, transcriptCorrections, transcriptEditRevision, transcriptReferences, userVocabulary])
 
   const removeRecent = useCallback(
     async (path: string): Promise<void> => {

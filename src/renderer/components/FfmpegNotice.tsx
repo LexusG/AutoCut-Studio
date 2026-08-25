@@ -23,7 +23,7 @@ export function FfmpegNotice({ status }: { status: FfmpegStatus | null }): React
       <AlertTriangle size={19} />
       <div>
         <strong>FFmpeg is missing</strong>
-        <p>Install it on Ubuntu with <code>sudo apt install ffmpeg</code>, then restart AutoCut Studio.</p>
+        <p>Open Local AI &amp; Processing to verify or repair the bundled runtime.</p>
       </div>
     </div>
   )

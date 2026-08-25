@@ -1,6 +1,6 @@
 # AutoCut Studio
 
-AutoCut Studio is a local-first Linux desktop application that automatically plans, previews, and exports edited videos from local source clips. Phase 8 adds offline transcript semantics, topic and highlight discovery, goal-directed editing, and independently planned social output variants to the existing FFmpeg pipeline.
+AutoCut Studio is a local-first Linux desktop application that automatically plans, previews, and exports edited videos from local source clips. Phase 9 adds production runtime packaging, local speaker diarization, speaker-aware transcript tools, confidence review, batch transcription, caption templates, and semantic collections.
 
 All footage remains on the local computer. Electron owns filesystem access and FFmpeg execution; the React renderer only communicates through a small, typed preload API.
 
@@ -8,7 +8,15 @@ All footage remains on the local computer. Electron owns filesystem access and F
 
 - Electron, React, TypeScript, Vite, Tailwind CSS, Zustand, and Lucide icons
 - Secure Electron window with context isolation, sandboxing, and Node integration disabled
-- FFmpeg and FFprobe availability checks at startup
+- Centralized architecture-aware RuntimeManager for FFmpeg, FFprobe, whisper.cpp, MediaPipe, MiniLM, sherpa-onnx, VAD, and beat analysis
+- Packaged x64 FFmpeg, FFprobe, and whisper.cpp executables outside ASAR with checksum manifests and executable permissions
+- Local AI & Processing diagnostics, privacy-conscious copy report, storage summary, repair/install actions, and persistent resource modes
+- Local sherpa-onnx speaker diarization with automatic or explicit speaker counts, caching, cancellation, and no Python dependency
+- Speaker-aware transcripts and captions with manual rename, merge, split, filtering, preview, and restrained caption accents
+- Low-confidence review with context playback, persistent corrections, user vocabulary prompting, exact replace-all, and undo
+- Sequential batch transcription with scope filters, VAD no-speech skipping, pause/resume, cancellation, cache status, and retry-failed controls
+- Seven protected built-in caption templates plus persisted custom save, rename, duplicate, delete, preview, and platform recommendations
+- Speaker-filtered semantic search, related-section multi-select, semantic collections, and independent custom output variants
 - Native multi-file picker and desktop drag-and-drop import
 - MP4, MOV, MKV, WebM, AVI, and M4V validation
 - FFprobe metadata for duration, size, resolution, frame rate, codec, audio, bitrate, and rotation
@@ -45,7 +53,7 @@ All footage remains on the local computer. Electron owns filesystem access and F
 - Ordered multi-track soundtrack with local preview, per-track volume/offset/fades, enable, reorder, and removal controls
 - Soundtrack looping, track crossfades, master volume, and source-audio ducking
 - Original-clip audio preservation, volume, and normalization configuration
-- Version 7 JSON project save/open with migrations from earlier schemas, semantic metadata references, independent variant preview histories, complete settings restoration, and recent projects
+- Version 8 JSON project save/open with migrations from earlier schemas, user-authored speaker labels/corrections, confidence review, vocabulary, semantic collections, independent variant preview histories, complete settings restoration, and recent projects
 - Missing background-audio recovery through Locate File or Remove Audio
 - Automatic editable output filenames based on the selected platform format
 - Mixed-orientation, mixed-frame-rate, pixel-format, aspect-ratio, and audio-stream normalization
@@ -69,21 +77,8 @@ All footage remains on the local computer. Electron owns filesystem access and F
 - Ubuntu or another current Linux distribution
 - Node.js 20 or newer
 - npm 10 or newer
-- FFmpeg and FFprobe
 
-On Ubuntu, install FFmpeg with:
-
-```bash
-sudo apt update
-sudo apt install ffmpeg
-```
-
-Verify both tools are available:
-
-```bash
-ffmpeg -version
-ffprobe -version
-```
+Packaged x64 builds include FFmpeg, FFprobe, and whisper.cpp. A system FFmpeg installation is only an optional development fallback.
 
 ## Install and run
 
@@ -101,6 +96,7 @@ npm run typecheck
 npm test
 npm run build
 npm run test:smoke
+npm run package:x64
 ```
 
 To open the compiled application locally:
@@ -113,7 +109,7 @@ The smoke test requires FFmpeg and a graphical Linux session or `xvfb-run`. In a
 
 The smoke workflows cover the Phase 6 and 7 editing paths plus an eight-clip Phase 8 project with speech, silent footage, multiple people and topics, music, captions, semantic analysis, highlights, three portrait variants, sequential previews, approvals, exports, FFprobe validation, and restart persistence.
 
-AppImage packaging will be configured in the later packaging phase.
+`package:x64` creates AppImage and deb artifacts under `release/`. `package:dir:x64` creates an unpacked package for fast runtime smoke testing. ARM64 packaging requires a trusted native runtime bundle supplied through `AUTOCUT_ARM64_RUNTIME_DIR`; the build refuses to substitute x64 binaries.
 
 ## Project files
 
@@ -132,6 +128,8 @@ src/
       filesystem/        Guarded media/model protocols and centralized storage paths
       audio/             FFprobe background-audio import
       models/            Shared managed model download support
+      runtime/           Architecture detection, path resolution, validation, diagnostics, and processing preferences
+      diarization/       sherpa-onnx provider, cache, transcript alignment, and model management
       projects/          Atomic project and recent-project persistence
       semantic/          MiniLM provider, chunk/cache storage, search, topics, highlights, and job scheduling
       video/             Planning, Smart analysis, audio, execution, preview, logs, and verification
@@ -164,9 +162,9 @@ tests/                   Unit tests
 
 ## Troubleshooting
 
-### FFmpeg is missing
+### A packaged runtime is missing
 
-Install the distribution package shown above and restart the app. AutoCut Studio needs both `ffmpeg` and `ffprobe` on `PATH`.
+Open **Local AI & Processing**, run **Verify All**, and use the available Repair or Install action. Packaged builds prefer their bundled runtime; system binaries remain optional fallbacks.
 
 ### A clip does not import
 
@@ -188,10 +186,10 @@ Fast preview may reduce dimensions and encoding quality, but it keeps the same c
 
 Any render-affecting edit marks existing versions as **Settings Changed** and blocks approval until regeneration. Old preview files remain watchable from Preview History while available.
 
-## Phase 8 boundaries
+## Phase 9 boundaries
 
-MiniLM measures semantic similarity; it does not generate summaries, titles, chapters, or spoken content. The default model is English-focused, and the UI warns that other languages may have weaker results. Topics use transcript boundaries and representative source text rather than fabricated names. Semantic relevance can rerank usable footage, but hard constraints, manual locks, and severe quality penalties still win.
+Speaker diarization creates anonymous labels such as Speaker 1; it does not identify people or create reusable biometric profiles. Synthetic and overlapping speech can still need manual review. MiniLM remains English-focused and does not generate content. Semantic and speaker preferences are scoring signals; hard constraints, manual locks, and severe quality penalties still win.
 
 ## Future work
 
-Multilingual embedding providers, broader coordination of every analysis subsystem under the central scheduler, explicit model unloading controls, configurable cache/storage byte quotas, advanced waveform editing, nonlinear timelines, and Linux packaging remain future work.
+Signed runtime updates, ARM64 hardware CI, multilingual embedding providers, richer overlap-caption presentation, configurable cache byte quotas, advanced waveform editing, and nonlinear timelines remain future work.
