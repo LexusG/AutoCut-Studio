@@ -5,6 +5,7 @@ import type {
   ProjectIntegrityIssue,
   ProjectIntegrityReport
 } from '@shared/types'
+import { PROJECT_SCHEMA_VERSION } from '@shared/utils/migrations'
 import { applicationStoragePaths } from '../filesystem/application-storage'
 
 async function exists(path: string): Promise<boolean> {
@@ -32,11 +33,11 @@ export async function validateProject(project: ProjectFile): Promise<ProjectInte
     issues.push(issue)
   }
 
-  if (project.version !== 9) {
+  if (project.version !== PROJECT_SCHEMA_VERSION) {
     add({
       code: 'schema-version',
       severity: 'error',
-      message: `The project reports schema version ${project.version}, but this build expects 9.`,
+      message: `The project reports schema version ${project.version}, but this build expects ${PROJECT_SCHEMA_VERSION}.`,
       repair: null,
       subject: null
     })

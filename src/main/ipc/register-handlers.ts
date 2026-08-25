@@ -83,6 +83,7 @@ import { cancelDiarization, diarizeProject } from '../services/diarization/job-m
 import { loadProjectDiarization } from '../services/diarization/repository'
 import { cancelAllTranscriptionQueueItems, cancelCurrentTranscriptionQueueItem, pauseTranscriptionQueue, resumeTranscriptionQueue, runTranscriptionQueue } from '../services/transcription/queue-manager'
 import { deleteCaptionTemplate, duplicateCaptionTemplate, getCaptionTemplates, renameCaptionTemplate, saveCaptionTemplate } from '../services/captions/template-manager'
+import { EDIT_STYLE_VERSION } from '@shared/constants/edit-styles'
 import { getProcessingResourceMode, setProcessingResourceMode } from '../services/runtime/processing-preferences'
 import { AtomicWriteError } from '../services/filesystem/atomic-write'
 import { cloneProjectIdentity } from '../services/projects/project-clone'
@@ -112,6 +113,21 @@ function validatePaths(value: unknown): string[] {
     throw new Error('The import request contained an invalid file path.')
   }
   return value
+}
+
+/** `null` is valid and means "legacy project, no edit style". */
+function isEditStyleRef(value: unknown): boolean {
+  if (value === null || value === undefined) return true
+  if (typeof value !== 'object') return false
+  const ref = value as { id?: unknown; version?: unknown }
+  return (
+    ['auto', 'clean', 'social-fast', 'cinematic', 'energetic', 'story'].includes(ref.id as string) &&
+    Number.isInteger(ref.version) &&
+    (ref.version as number) >= 1 &&
+    // A version this build does not know about cannot be resolved to a definition, so
+    // accepting it would silently fall back to the current style and change the output.
+    (ref.version as number) <= EDIT_STYLE_VERSION
+  )
 }
 
 function isRenderSettings(value: unknown): value is RenderSettings {
@@ -173,6 +189,14 @@ function isRenderSettings(value: unknown): value is RenderSettings {
     ['off', 'balanced', 'strong'].includes(settings.contentAwareness ?? '') &&
     ['off', 'normal', 'strong'].includes(settings.speechCutProtection ?? '') &&
     ['natural', 'beat-assisted', 'beat-strong'].includes(settings.cutSync ?? '') &&
+    isEditStyleRef(settings.editStyle) &&
+    ['automatic', 'strong-visual', 'strong-speech', 'strong-motion', 'chronological'].includes(settings.openingStrategy ?? '') &&
+    ['automatic', 'strong-result', 'natural-conclusion', 'fade-out', 'chronological'].includes(settings.endingStrategy ?? '') &&
+    ['uniform', 'automatic', 'minimal'].includes(settings.transitionStrategy ?? '') &&
+    ['off', 'subtle', 'dynamic'].includes(settings.autoMotion ?? '') &&
+    ['off', 'basic'].includes(settings.visualConsistency ?? '') &&
+    ['off', 'balanced', 'strong'].includes(settings.semanticFlow ?? '') &&
+    ['auto', 'hook-build-payoff', 'quick-montage', 'story-arc', 'showcase', 'before-after', 'chronological-story'].includes(settings.editStructure ?? '') &&
     ['center', 'smart-subject'].includes(settings.cropFocus ?? '') &&
     Boolean(captions) &&
     ['off', 'standard', 'dynamic'].includes(captions?.mode ?? '') &&

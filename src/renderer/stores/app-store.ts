@@ -53,10 +53,12 @@ import type {
   AutosaveStatus,
   ProjectSnapshotRef,
   ProxyRecord,
-  SourceMediaRecord
+  SourceMediaRecord,
+  EditStyleId
 } from '@shared/types'
 import { updateOutputVariant as reviseOutputVariant } from '@shared/utils/output-variants'
 import {
+  applyEditStyle,
   applyPlatformPreset,
   createDefaultProjectSettings,
   getPresetDisplayName,
@@ -161,6 +163,7 @@ interface AppState {
   setProjectName: (name: string) => void
   selectPlatform: (platform: PlatformId) => void
   selectPreset: (presetId: string) => void
+  selectEditStyle: (styleId: EditStyleId) => void
   updateOutput: (patch: Partial<VideoOutputSettings>) => void
   updateEditing: <Key extends keyof EditingSettings>(key: Key, value: EditingSettings[Key]) => void
   updateTargetDuration: (target: TargetDurationSettings) => void
@@ -555,6 +558,14 @@ export const useAppStore = create<AppState>((rawSet) => {
       editPlanOutdated: Boolean(state.editPlan)
     }
   }),
+  selectEditStyle: (styleId) => set((state) => ({
+    projectSettings: applyEditStyle(state.projectSettings, styleId),
+    projectDirty: true,
+    previewOutdated: Boolean(state.previewResult),
+    previewHistory: outdatedHistory(state.previewHistory),
+    exportResult: null,
+    editPlanOutdated: Boolean(state.editPlan)
+  })),
   selectPreset: (presetId) => set((state) => ({
     projectSettings: applyPlatformPreset(state.projectSettings, presetId),
     projectDirty: true,

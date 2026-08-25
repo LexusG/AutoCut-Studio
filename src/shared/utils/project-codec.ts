@@ -45,7 +45,20 @@ function hydrateSettings(value: unknown, legacy = false): ProjectSettings {
     },
     contentAwareness: legacy ? 'off' : (raw.editing?.contentAwareness ?? defaults.editing.contentAwareness),
     speechCutProtection: legacy ? 'off' : (raw.editing?.speechCutProtection ?? defaults.editing.speechCutProtection),
-    cutSync: legacy ? 'natural' : (raw.editing?.cutSync ?? 'natural')
+    cutSync: legacy ? 'natural' : (raw.editing?.cutSync ?? 'natural'),
+    // Absent means the settings predate edit styles. Inheriting the new-project default
+    // here would quietly opt an old project into Phase 11 behaviour, which matters most
+    // for the nested settings snapshots inside preview history: restoring one of those
+    // would otherwise change how an existing project renders.
+    editStyle: raw.editing?.editStyle ?? null,
+    openingStrategy: raw.editing?.openingStrategy ?? 'chronological',
+    endingStrategy: raw.editing?.endingStrategy ?? 'chronological',
+    transitionStrategy: raw.editing?.transitionStrategy ?? 'uniform',
+    autoMotion: raw.editing?.autoMotion ?? 'off',
+    visualConsistency: raw.editing?.visualConsistency ?? 'off',
+    semanticFlow: raw.editing?.semanticFlow ?? 'off',
+    editStructure: raw.editing?.editStructure ?? 'chronological-story',
+    versionCount: raw.editing?.versionCount ?? 1
   }
   const legacyAudio = raw.audio as (Partial<ProjectSettings['audio']> & { normalizeFinalMix?: boolean }) | undefined
   const audio = {
@@ -145,6 +158,7 @@ function hydrateRenderPlan(value: unknown): RenderPlan | null {
     generationMode: raw.generationMode ?? 'full-edit',
     highlightCandidateIds: raw.highlightCandidateIds ?? [],
     topicCoverageEnabled: raw.topicCoverageEnabled ?? true,
+    editStyle: raw.editStyle ?? null,
     audio: { ...raw.audio, duckingTrigger: raw.audio.duckingTrigger ?? 'automatic' },
     segments: raw.segments.map((segment) => ({
       ...segment,

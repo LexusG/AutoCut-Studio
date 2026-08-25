@@ -17,6 +17,7 @@ const REASON_LABELS: Record<SnapshotReason, string> = {
   manual: 'Manual snapshot',
   'before-bulk-transcript-removal': 'Before bulk transcript replace',
   'before-preset-change': 'Before changing platform preset',
+  'before-style-change': 'Before changing edit style',
   'before-replan': 'Before regenerating the edit plan',
   'before-restore': 'Before restoring an older version'
 }

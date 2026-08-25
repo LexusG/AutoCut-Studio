@@ -11,6 +11,7 @@ import { validateProjectSettings } from '@shared/utils/project-validation'
 import { useAppStore } from '../stores/app-store'
 import { AudioPanel } from './AudioPanel'
 import { PlatformPresetSelector } from './PlatformPresetSelector'
+import { EditStyleSelector } from './EditStyleSelector'
 import { ProjectHistoryPanel } from './ProjectHistoryPanel'
 import { StoragePanel } from './StoragePanel'
 
@@ -193,6 +194,7 @@ export function SettingsPanel(): React.JSX.Element {
         <details className="settings-details" open>
           <summary><Scissors size={14} /> Editing Settings <ChevronDown size={13} /></summary>
           <div className="settings-details-body">
+            <EditStyleSelector />
             <label className="stacked-setting">
               <span>Selection mode</span>
               <select value={editing.selectionMode} onChange={(event) => {

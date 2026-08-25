@@ -82,6 +82,7 @@ export type SnapshotReason =
   | 'manual'
   | 'before-bulk-transcript-removal'
   | 'before-preset-change'
+  | 'before-style-change'
   | 'before-replan'
   | 'before-restore'
 

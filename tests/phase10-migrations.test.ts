@@ -28,6 +28,7 @@ function fixtureForVersion(version: number): ProjectRecord {
   const raw: ProjectRecord = { ...current, version }
 
   const dropFrom: Record<number, string[]> = {
+    10: [],
     9: ['sourceMedia', 'proxyRecords', 'snapshotRefs', 'projectRevision'],
     8: [
       'diarizationReferences',
@@ -51,12 +52,16 @@ function fixtureForVersion(version: number): ProjectRecord {
   return raw
 }
 
-const SHIPPED_VERSIONS = [2, 3, 4, 5, 6, 7, 8]
+/**
+ * Every schema version the application has shipped, derived from the registry so a new
+ * phase extends this matrix automatically instead of silently going untested.
+ */
+const SHIPPED_VERSIONS = MIGRATIONS.map((migration) => migration.from)
 
 describe('project migration registry', () => {
   it('declares an unbroken chain from the oldest supported version to the current one', () => {
     expect(OLDEST_SUPPORTED_PROJECT_VERSION).toBe(2)
-    expect(PROJECT_SCHEMA_VERSION).toBe(9)
+    expect(PROJECT_SCHEMA_VERSION).toBe(MIGRATIONS[MIGRATIONS.length - 1].to)
     for (let index = 0; index < MIGRATIONS.length; index += 1) {
       expect(MIGRATIONS[index].to).toBe(MIGRATIONS[index].from + 1)
       if (index > 0) expect(MIGRATIONS[index].from).toBe(MIGRATIONS[index - 1].to)
@@ -76,7 +81,7 @@ describe('project migration registry', () => {
 
   it.each(SHIPPED_VERSIONS)('produces a fully populated project file from version %i', (version) => {
     const project = parseProjectFile(JSON.stringify(fixtureForVersion(version)))
-    expect(project.version).toBe(9)
+    expect(project.version).toBe(PROJECT_SCHEMA_VERSION)
     expect(project.sourcePaths).toEqual(['/clips/a.mp4', '/clips/b.mp4'])
     expect(project.sourceMedia.map((record) => record.path)).toEqual(project.sourcePaths)
     expect(project.proxyRecords).toEqual([])
@@ -102,7 +107,7 @@ describe('project migration registry', () => {
   })
 
   it('reports no migration for a project already at the current version', () => {
-    const { outcome } = migrateProjectRecord(fixtureForVersion(9))
+    const { outcome } = migrateProjectRecord(fixtureForVersion(PROJECT_SCHEMA_VERSION))
     expect(outcome.migrated).toBe(false)
     expect(outcome.steps).toEqual([])
   })
@@ -142,13 +147,13 @@ describe('project migration registry', () => {
   })
 
   it('carries an existing project revision forward rather than resetting it', () => {
-    const raw = fixtureForVersion(9)
+    const raw = fixtureForVersion(PROJECT_SCHEMA_VERSION)
     raw.projectRevision = 42
     expect(parseProjectFile(JSON.stringify(raw)).projectRevision).toBe(42)
   })
 
   it('rejects a project written by a newer build and says so distinctly', () => {
-    const raw = { ...fixtureForVersion(9), version: PROJECT_SCHEMA_VERSION + 1 }
+    const raw = { ...fixtureForVersion(PROJECT_SCHEMA_VERSION), version: PROJECT_SCHEMA_VERSION + 1 }
     let thrown: unknown
     try {
       migrateProjectRecord(raw)
@@ -177,11 +182,9 @@ describe('project migration registry', () => {
   it('surfaces the applied steps so a caller can log or back up before rewriting', () => {
     const { migration } = parseProjectDocument(JSON.stringify(fixtureForVersion(6)))
     expect(migration.originalVersion).toBe(6)
-    expect(migration.targetVersion).toBe(9)
-    expect(migration.steps.map((step) => `${step.from}->${step.to}`)).toEqual([
-      '6->7',
-      '7->8',
-      '8->9'
-    ])
+    expect(migration.targetVersion).toBe(PROJECT_SCHEMA_VERSION)
+    expect(migration.steps.map((step) => `${step.from}->${step.to}`)).toEqual(
+      MIGRATIONS.filter((migration) => migration.from >= 6).map((migration) => `${migration.from}->${migration.to}`)
+    )
   })
 })

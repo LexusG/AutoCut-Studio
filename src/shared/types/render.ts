@@ -1,3 +1,15 @@
+import type {
+  EditStyleDefinition,
+  AutoMotionMode,
+  EditStructureId,
+  EditStyleRef,
+  EndingStrategy,
+  OpeningStrategy,
+  SemanticFlowMode,
+  TransitionStrategy,
+  VisualConsistencyMode
+} from './phase11'
+
 export type AspectRatio = 'original' | '16:9' | '9:16' | '1:1' | '4:5'
 export type OutputResolution = '720p' | '1080p'
 export type OutputFrameRate = 'auto' | 24 | 30 | 60
@@ -177,6 +189,14 @@ export interface RenderSettings {
   contentAwareness: ContentAwarenessMode
   speechCutProtection: SpeechCutProtection
   cutSync: CutSyncMode
+  editStyle: EditStyleRef | null
+  openingStrategy: OpeningStrategy
+  endingStrategy: EndingStrategy
+  transitionStrategy: TransitionStrategy
+  autoMotion: AutoMotionMode
+  visualConsistency: VisualConsistencyMode
+  semanticFlow: SemanticFlowMode
+  editStructure: EditStructureId
   cropFocus: CropFocusMode
   captions: import('./transcription').CaptionSettings
   semantic: import('./semantic').SemanticProjectSettings
@@ -311,6 +331,15 @@ export interface RenderPlan {
   generationMode: import('./semantic').ProjectGenerationMode
   highlightCandidateIds: string[]
   topicCoverageEnabled: boolean
+  /**
+   * The complete style definition this plan was built with, frozen at plan time.
+   *
+   * Storing the resolved parameters rather than an id+version reference is what makes an
+   * old plan reproducible: re-rendering it replays its own definition instead of
+   * whatever the current build happens to define for that style. `null` means the plan
+   * predates edit styles and must render exactly as it always did.
+   */
+  editStyle: EditStyleDefinition | null
 }
 
 export interface EditPlanRequest {
@@ -469,6 +498,14 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
   contentAwareness: 'balanced',
   speechCutProtection: 'normal',
   cutSync: 'natural',
+  editStyle: null,
+  openingStrategy: 'chronological',
+  endingStrategy: 'chronological',
+  transitionStrategy: 'uniform',
+  autoMotion: 'off',
+  visualConsistency: 'off',
+  semanticFlow: 'off',
+  editStructure: 'chronological-story',
   cropFocus: 'center',
   captions: {
     mode: 'off',
