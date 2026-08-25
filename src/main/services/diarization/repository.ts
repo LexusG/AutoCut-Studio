@@ -1,7 +1,8 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { SpeakerDiarizationReference, SpeakerDiarizationResult } from '@shared/types'
 import { applicationStoragePaths } from '../filesystem/application-storage'
+import { writeFileAtomic } from '../filesystem/atomic-write'
 
 function resultPath(projectId: string, clipId: string): string {
   return join(applicationStoragePaths().projects, projectId, 'analysis', 'diarization', `${clipId}.json`)
@@ -24,10 +25,7 @@ export async function loadProjectDiarization(
 
 export async function saveDiarizationResult(projectId: string, result: SpeakerDiarizationResult): Promise<SpeakerDiarizationReference> {
   const path = resultPath(projectId, result.sourceClipId)
-  const temporary = `${path}.tmp`
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(temporary, JSON.stringify(result, null, 2))
-  await rename(temporary, path)
+  await writeFileAtomic(path, `${JSON.stringify(result, null, 2)}\n`)
   return {
     sourceClipId: result.sourceClipId,
     relativePath: join('projects', projectId, 'analysis', 'diarization', `${result.sourceClipId}.json`),

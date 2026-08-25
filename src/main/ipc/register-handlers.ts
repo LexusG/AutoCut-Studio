@@ -26,7 +26,9 @@ import {
   type RuntimeComponentId,
   type DiarizationRequest,
   type SpeakerDiarizationReference,
-  type TranscriptionQueueRequest
+  type TranscriptionQueueRequest,
+  type AutosaveResult,
+  type SnapshotReason
 } from '@shared/types'
 import { parseProjectFile } from '@shared/utils/project-codec'
 import { sanitizeFilenamePart } from '@shared/utils/project-settings'
@@ -82,6 +84,23 @@ import { loadProjectDiarization } from '../services/diarization/repository'
 import { cancelAllTranscriptionQueueItems, cancelCurrentTranscriptionQueueItem, pauseTranscriptionQueue, resumeTranscriptionQueue, runTranscriptionQueue } from '../services/transcription/queue-manager'
 import { deleteCaptionTemplate, duplicateCaptionTemplate, getCaptionTemplates, renameCaptionTemplate, saveCaptionTemplate } from '../services/captions/template-manager'
 import { getProcessingResourceMode, setProcessingResourceMode } from '../services/runtime/processing-preferences'
+import { AtomicWriteError } from '../services/filesystem/atomic-write'
+import { cloneProjectIdentity } from '../services/projects/project-clone'
+import { validateProject as inspectProjectIntegrity } from '../services/projects/project-integrity-service'
+import {
+  createSnapshot,
+  deleteSnapshot,
+  listSnapshots,
+  readSnapshot,
+  renameSnapshot,
+  summarizeSnapshotDiff
+} from '../services/projects/project-snapshot-manager'
+import {
+  discardRecovery,
+  inspectRecoveryState,
+  readRecoveredProject,
+  writeRecoveryJournal
+} from '../services/recovery/recovery-manager'
 
 const MAX_FILES_PER_IMPORT = 250
 
@@ -365,6 +384,21 @@ function validateLocalPath(value: unknown, label: string): string {
   return value
 }
 
+/**
+ * Identifiers coming from the renderer are used to build managed storage paths, so
+ * they are restricted to characters that cannot traverse out of that storage.
+ */
+function validateIdentifier(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(value)) {
+    throw new Error(`${label} identifier is invalid.`)
+  }
+  return value
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 async function pathExists(path: string): Promise<boolean> {
   try {
     await access(path)
@@ -490,6 +524,116 @@ export function registerIpcHandlers(): void {
       return saveProjectFile(filePath, project)
     }
   )
+
+  ipcMain.handle(
+    IPC_CHANNELS.autosaveProject,
+    async (_event, value: unknown, currentPath: unknown): Promise<AutosaveResult> => {
+      const savedAt = new Date().toISOString()
+      let project: ProjectFile
+      try {
+        project = validateProject(value)
+      } catch (error) {
+        // A project that cannot even be serialized must not silently vanish; report the
+        // failure and leave the renderer holding the in-memory work.
+        return { state: 'failed', filePath: null, savedAt, message: errorMessage(error) }
+      }
+
+      const filePath = currentPath == null ? null : validateLocalPath(currentPath, 'Project')
+
+      // Journal first, always. Even a failing file write leaves recoverable work behind.
+      try {
+        await writeRecoveryJournal(project, filePath, true)
+      } catch (error) {
+        return { state: 'failed', filePath, savedAt, message: errorMessage(error) }
+      }
+
+      // Autosave never opens a dialog. An unsaved project stays journalled until the
+      // user chooses a destination themselves.
+      if (!filePath) return { state: 'journalled', filePath: null, savedAt, message: null }
+
+      try {
+        await saveProjectFile(filePath, project)
+        await writeRecoveryJournal(project, filePath, false)
+        return { state: 'saved', filePath, savedAt, message: null }
+      } catch (error) {
+        const message =
+          error instanceof AtomicWriteError
+            ? error.message
+            : `The project could not be saved. ${errorMessage(error)}`
+        return { state: 'failed', filePath, savedAt, message }
+      }
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.saveProjectAs, async (_event, value: unknown) => {
+    const project = validateProject(value)
+    const result = await dialog.showSaveDialog({
+      title: 'Save AutoCut Studio project as',
+      defaultPath: `${sanitizeFilenamePart(project.settings.name)}.autocut.json`,
+      filters: [{ name: 'AutoCut Studio project', extensions: ['json'] }]
+    })
+    if (result.canceled || !result.filePath) return null
+    // A copy gets its own identity and its own managed storage, so editing either
+    // project can never disturb the other's transcripts, previews, or caches.
+    const cloned = await cloneProjectIdentity(project)
+    return saveProjectFile(result.filePath, cloned)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.recoveryState, () => inspectRecoveryState())
+
+  ipcMain.handle(IPC_CHANNELS.recoverProject, (_event, projectId: unknown) => {
+    return readRecoveredProject(validateIdentifier(projectId, 'Project'))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.discardRecovery, (_event, projectId: unknown) => {
+    return discardRecovery(validateIdentifier(projectId, 'Project'))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.snapshotList, (_event, projectId: unknown) => {
+    return listSnapshots(validateIdentifier(projectId, 'Project'))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.snapshotCreate, (_event, value: unknown, options: unknown) => {
+    const project = validateProject(value)
+    const request = (options ?? {}) as { reason?: unknown; name?: unknown }
+    if (typeof request.reason !== 'string') throw new Error('A snapshot reason is required.')
+    return createSnapshot(project, {
+      reason: request.reason as SnapshotReason,
+      name: typeof request.name === 'string' ? request.name : undefined
+    })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.snapshotRead, (_event, projectId: unknown, snapshotId: unknown) => {
+    return readSnapshot(validateIdentifier(projectId, 'Project'), validateIdentifier(snapshotId, 'Snapshot'))
+  })
+
+  ipcMain.handle(
+    IPC_CHANNELS.snapshotDiff,
+    async (_event, projectId: unknown, snapshotId: unknown, current: unknown) => {
+      const snapshot = await readSnapshot(
+        validateIdentifier(projectId, 'Project'),
+        validateIdentifier(snapshotId, 'Snapshot')
+      )
+      return summarizeSnapshotDiff(snapshot, validateProject(current))
+    }
+  )
+
+  ipcMain.handle(IPC_CHANNELS.snapshotRename, (_event, projectId: unknown, snapshotId: unknown, name: unknown) => {
+    if (typeof name !== 'string') throw new Error('A snapshot name is required.')
+    return renameSnapshot(
+      validateIdentifier(projectId, 'Project'),
+      validateIdentifier(snapshotId, 'Snapshot'),
+      name
+    )
+  })
+
+  ipcMain.handle(IPC_CHANNELS.snapshotDelete, (_event, projectId: unknown, snapshotId: unknown) => {
+    return deleteSnapshot(validateIdentifier(projectId, 'Project'), validateIdentifier(snapshotId, 'Snapshot'))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.validateProject, (_event, value: unknown) => {
+    return inspectProjectIntegrity(validateProject(value))
+  })
 
   ipcMain.handle(IPC_CHANNELS.chooseProject, async () => {
     const result = await dialog.showOpenDialog({

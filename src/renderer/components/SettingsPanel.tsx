@@ -11,6 +11,7 @@ import { validateProjectSettings } from '@shared/utils/project-validation'
 import { useAppStore } from '../stores/app-store'
 import { AudioPanel } from './AudioPanel'
 import { PlatformPresetSelector } from './PlatformPresetSelector'
+import { ProjectHistoryPanel } from './ProjectHistoryPanel'
 import { StoragePanel } from './StoragePanel'
 
 const aspectDimensions: Record<Exclude<AspectRatio, 'original'>, { width: number; height: number }> = {
@@ -304,6 +305,7 @@ export function SettingsPanel(): React.JSX.Element {
 
         <AudioPanel />
 
+        <ProjectHistoryPanel />
         <StoragePanel />
 
         <details className="settings-details" open>

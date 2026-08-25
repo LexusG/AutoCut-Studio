@@ -1,7 +1,8 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { ProcessingResourceMode } from '@shared/types'
 import { applicationStoragePaths } from '../filesystem/application-storage'
+import { writeFileAtomic } from '../filesystem/atomic-write'
 import { analysisScheduler } from '../semantic/analysis-scheduler'
 
 let current: ProcessingResourceMode = 'balanced'
@@ -24,9 +25,6 @@ export function getProcessingResourceMode(): ProcessingResourceMode { return cur
 export async function setProcessingResourceMode(mode: ProcessingResourceMode): Promise<ProcessingResourceMode> {
   if (!['low-memory', 'balanced', 'maximum-performance'].includes(mode)) throw new Error('Processing resource mode is invalid.')
   apply(mode)
-  const destination = path(); const temporary = `${destination}.tmp`
-  await mkdir(dirname(destination), { recursive: true })
-  await writeFile(temporary, `${JSON.stringify({ resourceMode: mode }, null, 2)}\n`, { mode: 0o600 })
-  await rename(temporary, destination)
+  await writeFileAtomic(path(), `${JSON.stringify({ resourceMode: mode }, null, 2)}\n`, { mode: 0o600 })
   return mode
 }

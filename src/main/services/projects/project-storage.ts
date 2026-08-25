@@ -1,9 +1,12 @@
-import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { access, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { app } from 'electron'
 import type { LoadedProject, ProjectFile, RecentProject, SavedProject } from '@shared/types'
-import { parseProjectFile, serializeProjectFile } from '@shared/utils/project-codec'
+import { parseProjectDocument, serializeProjectFile } from '@shared/utils/project-codec'
+import { writeFileAtomic } from '../filesystem/atomic-write'
 import { allowMediaPath, createMediaUrl } from '../filesystem/media-access'
+import { backupBeforeMigration, recordMigration } from './migration-log'
+import { recordProject } from './project-registry'
 import {
   regeneratePreviewThumbnail,
   resolvePreviewVersion,
@@ -86,9 +89,7 @@ async function readRecentProjects(): Promise<RecentProject[]> {
 }
 
 async function writeRecentProjects(projects: RecentProject[]): Promise<void> {
-  const filePath = recentProjectsPath()
-  await mkdir(dirname(filePath), { recursive: true })
-  await writeFile(filePath, `${JSON.stringify(projects, null, 2)}\n`, 'utf8')
+  await writeFileAtomic(recentProjectsPath(), `${JSON.stringify(projects, null, 2)}\n`)
 }
 
 async function recordRecent(filePath: string, project: ProjectFile): Promise<void> {
@@ -105,26 +106,48 @@ async function recordRecent(filePath: string, project: ProjectFile): Promise<voi
   await writeRecentProjects(next)
 }
 
+/**
+ * Keep the fingerprinted source list in step with the plain path list.
+ *
+ * `sourcePaths` remains the field every existing reader uses, so the two must never
+ * disagree about which files the project references.
+ */
+function reconcileSourceMedia(project: ProjectFile): ProjectFile {
+  const byPath = new Map(project.sourceMedia.map((record) => [record.path, record]))
+  const sourceMedia = project.sourcePaths.map(
+    (path) => byPath.get(path) ?? { path, clipId: null, relativePath: null, fingerprint: null }
+  )
+  return { ...project, sourceMedia }
+}
+
 export async function saveProjectFile(filePath: string, project: ProjectFile): Promise<SavedProject> {
-  const temporaryPath = `${filePath}.tmp-${process.pid}`
-  await mkdir(dirname(filePath), { recursive: true })
-  try {
-    await Promise.all([
-      ...project.previewHistory.map((version) => updatePreviewMetadata(project.id, version)),
-      ...project.outputVariants.flatMap((variant) => variant.previewHistory.map((version) => updatePreviewMetadata(project.id, version)))
-    ])
-    await writeFile(temporaryPath, serializeProjectFile(project), 'utf8')
-    await rename(temporaryPath, filePath)
-  } finally {
-    await rm(temporaryPath, { force: true })
-  }
-  await recordRecent(filePath, project)
-  return { filePath, project }
+  const reconciled = reconcileSourceMedia(project)
+  await Promise.all([
+    ...reconciled.previewHistory.map((version) => updatePreviewMetadata(reconciled.id, version)),
+    ...reconciled.outputVariants.flatMap((variant) =>
+      variant.previewHistory.map((version) => updatePreviewMetadata(reconciled.id, version))
+    )
+  ])
+  await writeFileAtomic(filePath, serializeProjectFile(reconciled))
+  await recordRecent(filePath, reconciled)
+  await recordProject({ projectId: reconciled.id, filePath, name: reconciled.settings.name })
+  return { filePath, project: reconciled }
 }
 
 export async function openProjectFile(filePath: string): Promise<LoadedProject> {
-  const project = await refreshLocalReferences(parseProjectFile(await readFile(filePath, 'utf8')))
+  const contents = await readFile(filePath, 'utf8')
+  const { project: parsed, migration } = parseProjectDocument(contents)
+
+  if (migration.migrated) {
+    // Take the untouched original aside before this build can write the upgraded form
+    // over it, so a bad upgrade is always recoverable.
+    await backupBeforeMigration(filePath, migration.originalVersion)
+    await recordMigration(filePath, migration)
+  }
+
+  const project = await refreshLocalReferences(reconcileSourceMedia(parsed))
   await recordRecent(filePath, project)
+  await recordProject({ projectId: project.id, filePath, name: project.settings.name })
   return { filePath, project }
 }
 

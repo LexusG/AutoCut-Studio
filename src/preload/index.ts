@@ -123,7 +123,25 @@ const api: AutoCutApi = {
   findHighlights: (request) => ipcRenderer.invoke(IPC_CHANNELS.highlightFind, request),
   createHighlightReel: (request) => ipcRenderer.invoke(IPC_CHANNELS.highlightCreateReel, request),
   exportChapters: (request) => ipcRenderer.invoke(IPC_CHANNELS.chapterExport, request),
-  getPathForFile: (file) => webUtils.getPathForFile(file)
+  getPathForFile: (file) => webUtils.getPathForFile(file),
+  autosaveProject: (project, filePath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.autosaveProject, project, filePath),
+  saveProjectAs: (project) => ipcRenderer.invoke(IPC_CHANNELS.saveProjectAs, project),
+  getRecoveryState: () => ipcRenderer.invoke(IPC_CHANNELS.recoveryState),
+  recoverProject: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.recoverProject, projectId),
+  discardRecovery: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.discardRecovery, projectId),
+  listSnapshots: (projectId) => ipcRenderer.invoke(IPC_CHANNELS.snapshotList, projectId),
+  createSnapshot: (project, options) =>
+    ipcRenderer.invoke(IPC_CHANNELS.snapshotCreate, project, options),
+  readSnapshot: (projectId, snapshotId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.snapshotRead, projectId, snapshotId),
+  diffSnapshot: (projectId, snapshotId, current) =>
+    ipcRenderer.invoke(IPC_CHANNELS.snapshotDiff, projectId, snapshotId, current),
+  renameSnapshot: (projectId, snapshotId, name) =>
+    ipcRenderer.invoke(IPC_CHANNELS.snapshotRename, projectId, snapshotId, name),
+  deleteSnapshot: (projectId, snapshotId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.snapshotDelete, projectId, snapshotId),
+  validateProject: (project) => ipcRenderer.invoke(IPC_CHANNELS.validateProject, project)
 }
 
 contextBridge.exposeInMainWorld('autoCut', api)

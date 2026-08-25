@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile, stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Transcript, TranscriptionSource, TranscriptionSettings } from '@shared/types'
 import { applicationStoragePaths } from '../filesystem/application-storage'
+import { writeFileAtomic } from '../filesystem/atomic-write'
 
 export async function transcriptCacheKey(
   source: TranscriptionSource,
@@ -31,10 +32,5 @@ export async function readTranscriptCache(key: string): Promise<Transcript | nul
 
 export async function writeTranscriptCache(key: string, transcript: Transcript): Promise<void> {
   const path = cachePath(key)
-  const temporary = `${path}.tmp-${process.pid}`
-  await mkdir(dirname(path), { recursive: true })
-  try {
-    await writeFile(temporary, `${JSON.stringify(transcript)}\n`, 'utf8')
-    await rename(temporary, path)
-  } finally { await rm(temporary, { force: true }) }
+  await writeFileAtomic(path, `${JSON.stringify(transcript)}\n`)
 }

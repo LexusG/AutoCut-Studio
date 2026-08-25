@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { SemanticEmbeddingRecord, SemanticTranscriptChunk } from '@shared/types'
 import { applicationStoragePaths } from '../filesystem/application-storage'
+import { writeFileAtomic } from '../filesystem/atomic-write'
 import { SEMANTIC_CHUNKING_VERSION } from './transcript-chunker'
 
 export function semanticProjectDirectory(projectId: string): string {
@@ -60,7 +61,6 @@ export async function writeEmbedding(
     analyzerVersion: 'phase8-semantic-v1'
   }
   const path = cachePath(projectId, chunk, modelVersion)
-  await mkdir(join(semanticProjectDirectory(projectId), 'embeddings'), { recursive: true })
-  await writeFile(path, `${JSON.stringify(record)}\n`, 'utf8')
+  await writeFileAtomic(path, `${JSON.stringify(record)}\n`)
   return record
 }

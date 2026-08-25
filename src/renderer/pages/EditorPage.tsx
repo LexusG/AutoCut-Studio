@@ -1,5 +1,6 @@
-import { ArrowLeft, ClipboardList, FileText, Play, Save, Settings, Sparkles } from 'lucide-react'
+import { ArrowLeft, ClipboardList, FileText, Play, Save, SaveAll, Settings, Sparkles } from 'lucide-react'
 import { useState } from 'react'
+import { AutosaveStatus } from '../components/AutosaveStatus'
 import { BrandMark } from '../components/BrandMark'
 import { FfmpegNotice } from '../components/FfmpegNotice'
 import { MediaPanel } from '../components/MediaPanel'
@@ -27,7 +28,8 @@ export function EditorPage(): React.JSX.Element {
   const editPlanOutdated = useAppStore((state) => state.editPlanOutdated)
   const showEditPlan = useAppStore((state) => state.showEditPlan)
   const { analyzeEditPlan, generatePreview, cancel } = useVideoRender()
-  const { save, busy: projectBusy, message: projectMessage, error: projectError } = useProjectFiles()
+  const readOnly = useAppStore((state) => state.projectReadOnly)
+  const { save, saveAs, busy: projectBusy, message: projectMessage, error: projectError } = useProjectFiles()
 
   return (
     <main className="editor-page">
@@ -43,6 +45,7 @@ export function EditorPage(): React.JSX.Element {
             <input aria-label="Project name" value={projectName} onChange={(event) => setProjectName(event.target.value)} />
             {projectDirty && <span title="Unsaved changes" />}
           </label>
+          <AutosaveStatus />
         </div>
         <div className="editor-header-right">
           {(projectMessage || projectError) && (
@@ -52,8 +55,18 @@ export function EditorPage(): React.JSX.Element {
           )}
           <FfmpegNotice status={ffmpegStatus} />
           <button className="icon-button" type="button" title="Local AI and Processing" aria-label="Local AI and Processing" onClick={() => setSystemOpen(true)}><Settings size={18} /></button>
-          <button className="button button-secondary" type="button" onClick={() => void save()} disabled={projectBusy || isRendering}>
+          <button className="button button-secondary" type="button" onClick={() => void save()} disabled={projectBusy || isRendering || readOnly}>
             <Save size={16} /> Save Project
+          </button>
+          <button
+            className="icon-button"
+            type="button"
+            title="Save Project As"
+            aria-label="Save Project As"
+            onClick={() => void saveAs()}
+            disabled={projectBusy || isRendering}
+          >
+            <SaveAll size={18} />
           </button>
           <button
             className="button button-secondary"

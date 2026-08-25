@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { LoadedProject, RecentProject } from '@shared/types'
-import { createProjectFile } from '@shared/utils/project-settings'
+import type { LoadedProject, ProjectFile, RecentProject } from '@shared/types'
 import { validateProjectSettings } from '@shared/utils/project-validation'
 import { useAppStore } from '../stores/app-store'
+import { currentProjectFile } from '../stores/project-file'
 
 interface ProjectFileActions {
   save: () => Promise<boolean>
+  saveAs: () => Promise<boolean>
+  openRecoveredProject: (project: ProjectFile, filePath: string | null) => Promise<void>
   chooseAndOpen: () => Promise<boolean>
   openRecent: (path: string) => Promise<boolean>
   removeRecent: (path: string) => Promise<void>
@@ -26,27 +28,9 @@ export function useProjectFiles(): ProjectFileActions {
   const [error, setError] = useState<string | null>(null)
   const settings = useAppStore((state) => state.projectSettings)
   const clips = useAppStore((state) => state.clips)
-  const projectId = useAppStore((state) => state.projectId)
-  const projectCreatedAt = useAppStore((state) => state.projectCreatedAt)
   const projectFilePath = useAppStore((state) => state.projectFilePath)
-  const previewHistory = useAppStore((state) => state.previewHistory)
-  const editPlan = useAppStore((state) => state.editPlan)
-  const transcriptReferences = useAppStore((state) => state.transcriptReferences)
-  const transcriptCorrections = useAppStore((state) => state.transcriptCorrections)
-  const textEdits = useAppStore((state) => state.textEdits)
-  const transcriptEditRevision = useAppStore((state) => state.transcriptEditRevision)
-  const semanticAnalysisReference = useAppStore((state) => state.semanticAnalysisReference)
-  const topics = useAppStore((state) => state.topics)
-  const semanticHints = useAppStore((state) => state.semanticHints)
-  const highlightCandidates = useAppStore((state) => state.highlightCandidates)
-  const outputVariants = useAppStore((state) => state.outputVariants)
-  const diarizationReferences = useAppStore((state) => state.diarizationReferences)
-  const speakerLabels = useAppStore((state) => state.speakerLabels)
-  const confidenceReviews = useAppStore((state) => state.confidenceReviews)
-  const userVocabulary = useAppStore((state) => state.userVocabulary)
-  const semanticCollections = useAppStore((state) => state.semanticCollections)
-  const projectCaptionTemplates = useAppStore((state) => state.projectCaptionTemplates)
   const markSaved = useAppStore((state) => state.markProjectSaved)
+  const markDirtyAfterRecovery = useAppStore((state) => state.markMeaningfulChange)
   const loadProject = useAppStore((state) => state.loadProject)
   const setRecentProjects = useAppStore((state) => state.setRecentProjects)
   const setImporting = useAppStore((state) => state.setImporting)
@@ -89,6 +73,21 @@ export function useProjectFiles(): ProjectFileActions {
       }
     },
     [loadProject, refreshRecent, setImporting, setLoadedDiarization, setLoadedSemanticAnalysis, setTranscripts]
+  )
+
+  /**
+   * Load recovered state into the editor without writing anything.
+   *
+   * The project is marked dirty on purpose: the recovered work is not on disk yet, and
+   * the user must be the one who decides to save it over their known-good file.
+   */
+  const openRecoveredProject = useCallback(
+    async (project: ProjectFile, filePath: string | null): Promise<void> => {
+      await openLoadedProject({ project, filePath: filePath ?? '' })
+      markDirtyAfterRecovery()
+      setMessage(`Recovered ${project.settings.name}`)
+    },
+    [markDirtyAfterRecovery, openLoadedProject]
   )
 
   const chooseAndOpen = useCallback(async (): Promise<boolean> => {
@@ -136,17 +135,7 @@ export function useProjectFiles(): ProjectFileActions {
 
     setBusy(true)
     try {
-      const project = createProjectFile(
-        settings,
-        clips.map((clip) => clip.path),
-        { id: projectId, createdAt: projectCreatedAt },
-        previewHistory,
-        editPlan,
-        { transcriptReferences, transcriptCorrections, textEdits, transcriptEditRevision },
-        { semanticAnalysis: semanticAnalysisReference, topics, semanticHints, highlightCandidates, outputVariants },
-        { diarizationReferences, speakerLabels, confidenceReviews, userVocabulary, semanticCollections, projectCaptionTemplates }
-      )
-      const saved = await window.autoCut.saveProject(project, projectFilePath)
+      const saved = await window.autoCut.saveProject(currentProjectFile(), projectFilePath)
       if (!saved) return false
       markSaved(saved)
       setMessage('Project saved')
@@ -158,7 +147,28 @@ export function useProjectFiles(): ProjectFileActions {
     } finally {
       setBusy(false)
     }
-  }, [clearFeedback, clips, confidenceReviews, diarizationReferences, editPlan, highlightCandidates, markSaved, outputVariants, previewHistory, projectCaptionTemplates, projectCreatedAt, projectFilePath, projectId, refreshRecent, semanticAnalysisReference, semanticCollections, semanticHints, settings, speakerLabels, textEdits, topics, transcriptCorrections, transcriptEditRevision, transcriptReferences, userVocabulary])
+  }, [clearFeedback, clips.length, markSaved, projectFilePath, refreshRecent, settings])
+
+  const saveAs = useCallback(async (): Promise<boolean> => {
+    clearFeedback()
+    setBusy(true)
+    try {
+      // Save As mints a new project identity and clones the managed sidecar storage in
+      // the main process, so the copy and the original never share transcripts,
+      // previews, or caches.
+      const saved = await window.autoCut.saveProjectAs(currentProjectFile())
+      if (!saved) return false
+      markSaved(saved)
+      setMessage('Project saved as a new copy')
+      await refreshRecent()
+      return true
+    } catch (operationError) {
+      setError(errorMessage(operationError))
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }, [clearFeedback, markSaved, refreshRecent])
 
   const removeRecent = useCallback(
     async (path: string): Promise<void> => {
@@ -169,6 +179,8 @@ export function useProjectFiles(): ProjectFileActions {
 
   return {
     save,
+    saveAs,
+    openRecoveredProject,
     chooseAndOpen,
     openRecent,
     removeRecent,
