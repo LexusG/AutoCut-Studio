@@ -190,6 +190,11 @@ Any render-affecting edit marks existing versions as **Settings Changed** and bl
 
 Speaker diarization creates anonymous labels such as Speaker 1; it does not identify people or create reusable biometric profiles. Synthetic and overlapping speech can still need manual review. MiniLM remains English-focused and does not generate content. Semantic and speaker preferences are scoring signals; hard constraints, manual locks, and severe quality penalties still win.
 
+## Specifications
+
+- [docs/phase-9-packaging.md](docs/phase-9-packaging.md) — packaging matrix and packaged-runtime verification.
+- [docs/phase-12-requirements.md](docs/phase-12-requirements.md) — Phase 12 in-app tutorial and guided learning requirements, with a readiness matrix naming the prerequisites each tutorial depends on.
+
 ## Future work
 
 Signed runtime updates, ARM64 hardware CI, multilingual embedding providers, richer overlap-caption presentation, configurable cache byte quotas, advanced waveform editing, and nonlinear timelines remain future work.
