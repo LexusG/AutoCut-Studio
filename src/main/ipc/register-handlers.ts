@@ -83,6 +83,7 @@ import { cancelDiarization, diarizeProject } from '../services/diarization/job-m
 import { loadProjectDiarization } from '../services/diarization/repository'
 import { cancelAllTranscriptionQueueItems, cancelCurrentTranscriptionQueueItem, pauseTranscriptionQueue, resumeTranscriptionQueue, runTranscriptionQueue } from '../services/transcription/queue-manager'
 import { deleteCaptionTemplate, duplicateCaptionTemplate, getCaptionTemplates, renameCaptionTemplate, saveCaptionTemplate } from '../services/captions/template-manager'
+import { EDIT_STYLE_VERSION } from '@shared/constants/edit-styles'
 import { getProcessingResourceMode, setProcessingResourceMode } from '../services/runtime/processing-preferences'
 import { AtomicWriteError } from '../services/filesystem/atomic-write'
 import { cloneProjectIdentity } from '../services/projects/project-clone'
@@ -121,7 +122,11 @@ function isEditStyleRef(value: unknown): boolean {
   const ref = value as { id?: unknown; version?: unknown }
   return (
     ['auto', 'clean', 'social-fast', 'cinematic', 'energetic', 'story'].includes(ref.id as string) &&
-    Number.isInteger(ref.version)
+    Number.isInteger(ref.version) &&
+    (ref.version as number) >= 1 &&
+    // A version this build does not know about cannot be resolved to a definition, so
+    // accepting it would silently fall back to the current style and change the output.
+    (ref.version as number) <= EDIT_STYLE_VERSION
   )
 }
 

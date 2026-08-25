@@ -1,6 +1,8 @@
 import { getPreset, PLATFORM_LABELS } from '../constants/presets'
 import { PROJECT_SCHEMA_VERSION } from './migrations/steps'
 import { EDIT_STYLE_VERSION, getEditStyle } from '../constants/edit-styles'
+import { getBuiltInCaptionTemplate } from '../constants/caption-templates'
+import { DEFAULT_CAPTION_SETTINGS } from '../constants/caption-defaults'
 import type { EditStyleId } from '../types/phase11'
 import type {
   PlatformId,
@@ -134,32 +136,7 @@ export function createDefaultProjectSettings(): ProjectSettings {
       language: 'english',
       threads: 4
     },
-    captions: {
-      mode: 'off',
-      subtitleOutput: 'none',
-      style: {
-        preset: 'clean',
-        fontFamily: 'DejaVu Sans',
-        fontSize: 48,
-        fontWeight: 600,
-        textColor: '#ffffff',
-        highlightColor: '#facc15',
-        backgroundEnabled: true,
-        backgroundOpacity: 0.58,
-        outline: 2,
-        shadow: 1,
-        alignment: 'center',
-        position: 'bottom',
-        verticalOffset: 8,
-        maximumWidth: 84,
-        lineSpacing: 1
-      },
-      safeAreaPreset: 'youtube-standard',
-      safeAreaVisible: false,
-      highlightSpokenWord: true,
-      highlightBehavior: 'color',
-      animation: 'none'
-    },
+    captions: structuredClone(DEFAULT_CAPTION_SETTINGS),
     semantic: {
       enabled: true,
       provider: 'minilm-transformers-js',
@@ -217,6 +194,21 @@ export function applyEditStyle(settings: ProjectSettings, styleId: EditStyleId):
   const style = getEditStyle(styleId)
   if (!style) throw new Error('The selected edit style is unavailable.')
 
+  // Apply the caption template's real configuration, not just its name. Setting only the
+  // identifier leaves the previous template's font, weight and placement in force.
+  const template = getBuiltInCaptionTemplate(style.captionTemplateId)
+  const captions: ProjectSettings['captions'] = template
+    ? {
+        ...settings.captions,
+        ...template.settings,
+        mode: style.captionMode,
+        subtitleOutput: settings.captions.subtitleOutput,
+        safeAreaPreset: settings.captions.safeAreaPreset,
+        templateId: style.captionTemplateId,
+        style: { ...settings.captions.style, ...template.settings.style }
+      }
+    : { ...settings.captions, mode: style.captionMode, templateId: style.captionTemplateId }
+
   return {
     ...settings,
     editing: {
@@ -225,8 +217,9 @@ export function applyEditStyle(settings: ProjectSettings, styleId: EditStyleId):
       pace: style.pace,
       cutSync: style.cutSync,
       contentAwareness: style.contentAwareness,
-      transitionPreference:
-        style.transitionStrategy === 'minimal' ? 'none' : settings.editing.transitionPreference,
+      // Declared by the style rather than inherited, so applying Energetic then Cinematic
+      // cannot leave transitions switched off from the previous choice.
+      transitionPreference: style.transitionPreference,
       transitionDuration: style.transitionDuration,
       transitionStrategy: style.transitionStrategy,
       openingStrategy: style.openingStrategy,
@@ -241,16 +234,14 @@ export function applyEditStyle(settings: ProjectSettings, styleId: EditStyleId):
         preferMotion: style.preferMotion
       }
     },
-    captions: {
-      ...settings.captions,
-      mode: style.captionMode,
-      templateId: style.captionTemplateId,
-      style: { ...settings.captions.style, preset: style.captionTemplateId as ProjectSettings['captions']['style']['preset'] }
-    },
+    captions,
     captionTemplateId: style.captionTemplateId,
     audio: {
       ...settings.audio,
       musicVolume: style.audio.musicVolume,
+      // The multi-track soundtrack is what actually plays; leaving its master volume
+      // untouched would make the style's audio profile inaudible on real projects.
+      soundtrack: { ...settings.audio.soundtrack, masterVolume: style.audio.musicVolume },
       fadeIn: { ...settings.audio.fadeIn, duration: style.audio.fadeInSeconds },
       fadeOut: { ...settings.audio.fadeOut, duration: style.audio.fadeOutSeconds }
     }

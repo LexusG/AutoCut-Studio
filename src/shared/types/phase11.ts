@@ -120,6 +120,11 @@ export interface EditStyleDefinition {
   transitionStrategy: TransitionStrategy
   /** Share of boundaries allowed a transition. The rest stay hard cuts. */
   transitionFrequency: number
+  /**
+   * The transition this style uses when it uses one. Declared explicitly so applying a
+   * style is deterministic rather than inheriting whatever the previous style left.
+   */
+  transitionPreference: 'none' | 'crossfade' | 'fade' | 'dip-to-black'
   transitionDuration: number
   autoMotion: AutoMotionMode
   visualConsistency: VisualConsistencyMode

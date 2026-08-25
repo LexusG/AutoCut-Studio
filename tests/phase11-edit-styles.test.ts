@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EDIT_STYLES, EDIT_STYLE_VERSION, getEditStyle, recommendEditStyle } from '../src/shared/constants/edit-styles'
+import { getBuiltInCaptionTemplate } from '../src/shared/constants/caption-templates'
 import type { EditStyleId, StyleRecommendationSignals } from '../src/shared/constants/edit-styles'
 import type { ProjectRecord } from '../src/shared/utils/migrations'
 import { migrateProjectRecord, PROJECT_SCHEMA_VERSION } from '../src/shared/utils/migrations'
@@ -127,6 +128,43 @@ describe('applying an edit style', () => {
     expect({ ...applied.editing, editStyle: null }).toEqual({ ...base.editing, editStyle: null })
   })
 
+  it('is deterministic regardless of which style was applied before', () => {
+    const base = createDefaultProjectSettings()
+    // Energetic uses the minimal transition strategy; switching to Cinematic afterwards
+    // must restore Cinematic's own transitions rather than inheriting what was left.
+    const direct = applyEditStyle(base, 'cinematic')
+    const afterEnergetic = applyEditStyle(applyEditStyle(base, 'energetic'), 'cinematic')
+    expect(afterEnergetic.editing).toEqual(direct.editing)
+    expect(afterEnergetic.editing.transitionPreference).toBe('crossfade')
+    expect(afterEnergetic.captions).toEqual(direct.captions)
+    expect(afterEnergetic.audio.musicVolume).toBe(direct.audio.musicVolume)
+  })
+
+  it('applies the caption template configuration, not just its name', () => {
+    const applied = applyEditStyle(createDefaultProjectSettings(), 'social-fast')
+    const template = getBuiltInCaptionTemplate('social-bold')!
+    expect(applied.captions.templateId).toBe('social-bold')
+    // Setting only the identifier would leave the previous template's font in force.
+    expect(applied.captions.style.fontSize).toBe(template.settings.style.fontSize)
+    expect(applied.captions.style.fontWeight).toBe(template.settings.style.fontWeight)
+    expect(applied.captions.style.position).toBe(template.settings.style.position)
+  })
+
+  it('names only caption templates that actually exist', () => {
+    for (const style of EDIT_STYLES) {
+      expect(getBuiltInCaptionTemplate(style.captionTemplateId)).not.toBeNull()
+    }
+  })
+
+  it('sets the soundtrack master volume, which is what actually plays', () => {
+    const base = createDefaultProjectSettings()
+    const applied = applyEditStyle(base, 'story')
+    expect(applied.audio.soundtrack.masterVolume).toBe(applied.audio.musicVolume)
+    expect(applied.audio.soundtrack.masterVolume).toBeLessThan(
+      applyEditStyle(base, 'cinematic').audio.soundtrack.masterVolume
+    )
+  })
+
   it('rejects an unknown style rather than silently doing nothing', () => {
     expect(() => applyEditStyle(createDefaultProjectSettings(), 'nonsense' as EditStyleId)).toThrow(
       /unavailable/i
@@ -185,6 +223,24 @@ describe('legacy projects', () => {
     expect(editing.openingStrategy).toBe('chronological')
     expect(editing.endingStrategy).toBe('chronological')
     expect(editing.versionCount).toBe(1)
+  })
+
+  it('does not opt an old preview snapshot into Phase 11 when it is restored', () => {
+    // Preview history carries nested settings snapshots. Hydrating one with today's
+    // defaults would inject Auto and silently change how the project renders.
+    const settings = createDefaultProjectSettings()
+    const project = JSON.parse(
+      JSON.stringify(createProjectFile(settings, ['/clips/a.mp4']))
+    ) as ProjectRecord
+    const snapshot = JSON.parse(JSON.stringify(settings)) as { editing: Record<string, unknown> }
+    for (const field of PHASE_11_EDITING_FIELDS) delete snapshot.editing[field]
+
+    const hydrated = parseProjectFile(
+      JSON.stringify({ ...project, version: 9, settings: { ...settings, editing: snapshot.editing } })
+    )
+    expect(hydrated.settings.editing.editStyle).toBeNull()
+    expect(hydrated.settings.editing.autoMotion).toBe('off')
+    expect(hydrated.settings.editing.transitionStrategy).toBe('uniform')
   })
 
   it('starts new projects on automatic style selection', () => {

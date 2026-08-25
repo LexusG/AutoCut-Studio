@@ -1,4 +1,5 @@
 import type {
+  EditStyleDefinition,
   AutoMotionMode,
   EditStructureId,
   EditStyleRef,
@@ -330,6 +331,15 @@ export interface RenderPlan {
   generationMode: import('./semantic').ProjectGenerationMode
   highlightCandidateIds: string[]
   topicCoverageEnabled: boolean
+  /**
+   * The complete style definition this plan was built with, frozen at plan time.
+   *
+   * Storing the resolved parameters rather than an id+version reference is what makes an
+   * old plan reproducible: re-rendering it replays its own definition instead of
+   * whatever the current build happens to define for that style. `null` means the plan
+   * predates edit styles and must render exactly as it always did.
+   */
+  editStyle: EditStyleDefinition | null
 }
 
 export interface EditPlanRequest {

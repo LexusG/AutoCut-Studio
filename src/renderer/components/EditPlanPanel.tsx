@@ -82,7 +82,7 @@ export function EditPlanPanel(): React.JSX.Element | null {
   return (
     <section className="edit-plan-overlay" aria-label="Edit Plan">
       <header className="edit-plan-header">
-        <div><Sparkles size={18} /><span><h2>Edit Plan</h2><small>Revision {plan.revision}</small></span></div>
+        <div><Sparkles size={18} /><span><h2>Edit Plan</h2><small>Revision {plan.revision}{plan.editStyle ? ` · ${plan.editStyle.name}` : ''}</small></span></div>
         <div className="edit-plan-summary">
           <span>Requested <strong>{requested == null ? 'Auto' : formatDuration(requested)}</strong></span>
           <span>Planned <strong>{formatDuration(plan.expectedDuration)}</strong></span>

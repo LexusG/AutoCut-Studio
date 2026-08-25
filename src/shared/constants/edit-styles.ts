@@ -41,6 +41,7 @@ export const EDIT_STYLES: readonly EditStyleDefinition[] = [
     endingStrategy: 'automatic',
     transitionStrategy: 'automatic',
     transitionFrequency: 0.25,
+    transitionPreference: 'crossfade',
     transitionDuration: 0.5,
     autoMotion: 'subtle',
     visualConsistency: 'basic',
@@ -70,6 +71,7 @@ export const EDIT_STYLES: readonly EditStyleDefinition[] = [
     transitionStrategy: 'minimal',
     // Almost everything is a hard cut; social edits look wrong when decorated.
     transitionFrequency: 0.08,
+    transitionPreference: 'crossfade',
     transitionDuration: 0.25,
     autoMotion: 'dynamic',
     visualConsistency: 'basic',
@@ -98,6 +100,7 @@ export const EDIT_STYLES: readonly EditStyleDefinition[] = [
     endingStrategy: 'natural-conclusion',
     transitionStrategy: 'automatic',
     transitionFrequency: 0.6,
+    transitionPreference: 'crossfade',
     transitionDuration: 0.8,
     autoMotion: 'subtle',
     visualConsistency: 'basic',
@@ -126,13 +129,14 @@ export const EDIT_STYLES: readonly EditStyleDefinition[] = [
     endingStrategy: 'automatic',
     transitionStrategy: 'minimal',
     transitionFrequency: 0.15,
+    transitionPreference: 'crossfade',
     transitionDuration: 0.3,
     autoMotion: 'dynamic',
     visualConsistency: 'basic',
     semanticFlow: 'off',
     editStructure: 'quick-montage',
     shotVariety: 0.8,
-    captionTemplateId: 'bold',
+    captionTemplateId: 'social-bold',
     captionMode: 'dynamic',
     preferSpeech: false,
     preferMotion: true,
@@ -154,6 +158,7 @@ export const EDIT_STYLES: readonly EditStyleDefinition[] = [
     endingStrategy: 'natural-conclusion',
     transitionStrategy: 'automatic',
     transitionFrequency: 0.3,
+    transitionPreference: 'fade',
     transitionDuration: 0.6,
     autoMotion: 'subtle',
     visualConsistency: 'basic',
@@ -172,38 +177,79 @@ export function getEditStyle(id: EditStyleId): EditStyleDefinition | null {
   return EDIT_STYLES.find((style) => style.id === id) ?? null
 }
 
-/** Signals used to pick a style when the user leaves it on Auto. */
+/**
+ * Signals used to pick a style when the user leaves it on Auto.
+ *
+ * Structural signals are knowable from FFprobe alone. The refined signals require Smart
+ * analysis and are `null` until it has run, so the recommendation degrades to structure
+ * rather than guessing at content it cannot see yet.
+ */
 export interface StyleRecommendationSignals {
   clipCount: number
-  speechRatio: number
-  motionRatio: number
-  personRatio: number
-  hasMusic: boolean
   averageClipDuration: number
+  hasMusic: boolean
+  /** Fraction of clips carrying an audio stream. */
+  audioRatio: number
+  portraitRatio: number
+  speechRatio: number | null
+  motionRatio: number | null
+  personRatio: number | null
 }
 
 /**
  * Choose a style from what the footage actually looks like.
  *
- * This is a coarse heuristic over signals the analysis pipeline already produces, and it
- * is always overridable — the recommendation is shown to the user, never hidden.
+ * A coarse heuristic over signals the pipeline already produces, always overridable and
+ * always shown to the user rather than applied invisibly.
  */
 export function recommendEditStyle(signals: StyleRecommendationSignals): EditStyleId {
-  // Speech-led footage is about what is being said, so protect it above all else.
-  if (signals.speechRatio >= 0.45) return 'story'
+  const { speechRatio, motionRatio, personRatio } = signals
 
-  if (signals.hasMusic && signals.motionRatio >= 0.55) {
-    // Lots of movement with music: pick by shot length, since long takes suit a
-    // driving edit and short ones suit rapid social cutting.
+  // Speech-led footage is about what is being said, so protect it above all else.
+  if (speechRatio !== null && speechRatio >= 0.45) return 'story'
+
+  if (speechRatio === null && signals.audioRatio >= 0.8 && !signals.hasMusic && signals.averageClipDuration >= 8) {
+    // Long clips that all carry sound and have no soundtrack are most likely talking
+    // footage. Weaker evidence than a real speech ratio, but better than ignoring it.
+    return 'story'
+  }
+
+  if (signals.hasMusic && motionRatio !== null && motionRatio >= 0.55) {
+    // Movement with music: long takes suit a driving edit, short ones rapid social cutting.
     return signals.averageClipDuration >= 8 ? 'energetic' : 'social-fast'
   }
 
   // Scenery with little movement and few people reads as establishing footage.
-  if (signals.personRatio <= 0.25 && signals.motionRatio <= 0.4 && signals.averageClipDuration >= 6) {
+  if (
+    personRatio !== null &&
+    motionRatio !== null &&
+    personRatio <= 0.25 &&
+    motionRatio <= 0.4 &&
+    signals.averageClipDuration >= 6
+  ) {
     return 'cinematic'
   }
 
   if (signals.hasMusic && signals.clipCount >= 8 && signals.averageClipDuration <= 5) return 'social-fast'
 
+  // Portrait footage with music and no speech evidence is most likely a social edit.
+  if (signals.hasMusic && signals.portraitRatio >= 0.6 && speechRatio === null) return 'social-fast'
+
   return 'clean'
+}
+
+/**
+ * Resolve the style a plan should actually be built with.
+ *
+ * Returns `null` for a legacy project, which every Phase 11 planner treats as "change
+ * nothing". Auto is resolved here so the choice is made once, recorded on the plan, and
+ * visible to the user.
+ */
+export function resolveEditStyle(
+  reference: { id: EditStyleId; version: number } | null,
+  signals: StyleRecommendationSignals
+): EditStyleDefinition | null {
+  if (!reference) return null
+  const id = reference.id === 'auto' ? recommendEditStyle(signals) : reference.id
+  return getEditStyle(id)
 }

@@ -111,6 +111,15 @@ export function FinalPreviewPage(): React.JSX.Element {
           <div><dt>Selection</dt><dd>{preview.plan.selectionMode === 'smart' ? 'Smart' : 'Classic'}</dd></div>
           <div><dt>Soundtrack</dt><dd>{preview.plan.audio.soundtrackTracks.filter((track) => track.enabled && !track.missing).length} tracks</dd></div>
           <div><dt>Pace</dt><dd>{preview.plan.pace}</dd></div>
+          {preview.plan.editStyle && (
+            <div>
+              <dt>Edit style</dt>
+              <dd>
+                {preview.plan.editStyle.name}
+                {previewSettings.editing.editStyle?.id === 'auto' && ' (chosen automatically)'}
+              </dd>
+            </div>
+          )}
           <div><dt>Target</dt><dd>{preview.plan.requestedDuration ? formatDuration(preview.plan.requestedDuration) : 'Auto'}</dd></div>
         </dl>
 

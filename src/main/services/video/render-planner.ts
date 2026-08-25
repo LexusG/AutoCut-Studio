@@ -1,4 +1,6 @@
 import { randomInt, randomUUID } from 'node:crypto'
+import { resolveEditStyle } from '@shared/constants/edit-styles'
+import type { StyleRecommendationSignals } from '@shared/constants/edit-styles'
 import { basename } from 'node:path'
 import type {
   AspectRatio,
@@ -139,6 +141,31 @@ function variationPosition(generation: number, index: number): number {
   return 0.1 + ((((generation + 1) * 37 + (index + 1) * 53) % 81) / 100)
 }
 
+/**
+ * Signals derivable from FFprobe alone.
+ *
+ * Speech, motion and person ratios need Smart analysis, which has not run at plan-build
+ * time, so they are reported as unknown rather than guessed.
+ */
+function structuralSignals(sources: RenderSource[], settings: RenderSettings): StyleRecommendationSignals {
+  const totalDuration = sources.reduce((sum, source) => sum + source.duration, 0)
+  const portraitCount = sources.filter((source) => {
+    const { width, height } = effectiveDimensions(source)
+    return height > width
+  }).length
+  const soundtrack = settings.audio.soundtrackTracks.filter((track) => track.enabled && !track.missing)
+  return {
+    clipCount: sources.length,
+    averageClipDuration: sources.length === 0 ? 0 : totalDuration / sources.length,
+    hasMusic: soundtrack.length > 0 || Boolean(settings.audio.backgroundTrack),
+    audioRatio: sources.length === 0 ? 0 : sources.filter((source) => source.hasAudio).length / sources.length,
+    portraitRatio: sources.length === 0 ? 0 : portraitCount / sources.length,
+    speechRatio: null,
+    motionRatio: null,
+    personRatio: null
+  }
+}
+
 export function buildRenderPlan(
   projectId: string,
   generation: number,
@@ -149,15 +176,23 @@ export function buildRenderPlan(
 ): RenderPlan {
   if (paths.length !== metadata.length) throw new Error('Source metadata is incomplete.')
   const sources = paths.map((path, index) => ({ path, filename: basename(path), ...metadata[index] }))
+
+  // Resolve the style once, here, so Auto becomes a concrete choice that is recorded on
+  // the plan and shown to the user rather than left as an unfulfilled promise.
+  const editStyle = resolveEditStyle(settings.editStyle, structuralSignals(sources, settings))
+  const pace = editStyle?.pace ?? settings.pace
+  const transitionPreference = editStyle?.transitionPreference ?? settings.transitionPreference
+  const transitionDuration = editStyle?.transitionDuration ?? settings.transitionDuration
+
   const arranged = arrangeSources(sources, settings.editingMode, settings.aspectRatio, generation)
     .map(usableSource)
   const allocation = allocateSegmentDurations(
     arranged,
-    settings.pace,
+    pace,
     settings.targetDuration,
     settings.useEveryClip,
-    settings.transitionPreference,
-    settings.transitionDuration
+    transitionPreference,
+    transitionDuration
   )
   const included = allocation.includedIndices.map((index) => arranged[index])
   const output = getOutputSpec(settings, included)
@@ -169,7 +204,6 @@ export function buildRenderPlan(
       Math.max(0, source.usableStart + freeSpace * variationPosition(generation, index)),
       Math.max(0, source.duration - duration)
     )
-    const transitionDuration = allocation.transitionDurations[index]
     return {
       id: `segment-${(index + 1).toString().padStart(3, '0')}`,
       sourcePath: source.path,
@@ -189,9 +223,9 @@ export function buildRenderPlan(
       automaticStart: Math.round(start * 1000) / 1000,
       automaticEnd: Math.round((start + duration) * 1000) / 1000,
       cropPlan: null,
-      transitionToNext: transitionDuration == null
+      transitionToNext: allocation.transitionDurations[index] == null
         ? null
-        : { type: settings.transitionPreference, duration: transitionDuration }
+        : { type: transitionPreference, duration: allocation.transitionDurations[index] }
     }
   })
 
@@ -211,7 +245,7 @@ export function buildRenderPlan(
       fitMode: settings.fitMode,
       quality: settings.quality
     },
-    pace: settings.pace,
+    pace,
     useEveryClip: settings.useEveryClip,
     requestedDuration: settings.targetDuration,
     expectedDuration: allocation.expectedDuration,
@@ -250,7 +284,8 @@ export function buildRenderPlan(
     variantId: null,
     generationMode: 'full-edit',
     highlightCandidateIds: [],
-    topicCoverageEnabled: true
+    topicCoverageEnabled: true,
+    editStyle
   }
 }
 
