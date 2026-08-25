@@ -29,6 +29,7 @@ function toChunk(transcript: Transcript, words: TranscriptWord[]): SemanticTrans
     text: words.map((word) => word.text).join(' ').replace(/\s+([,.!?;:])/g, '$1').trim(),
     wordIds: words.map((word) => word.id),
     segmentIds,
+    speakerIds: [...new Set(words.map((word) => word.speakerId).filter((value): value is string => Boolean(value)))],
     embeddingId: id
   }
 }

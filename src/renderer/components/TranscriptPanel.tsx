@@ -13,6 +13,11 @@ import { SemanticPanel } from './SemanticPanel'
 import { TopicsPanel } from './TopicsPanel'
 import { HighlightsPanel } from './HighlightsPanel'
 import { VersionsPanel } from './VersionsPanel'
+import { SpeakersPanel } from './SpeakersPanel'
+import { ConfidencePanel } from './ConfidencePanel'
+import { TranscriptionQueuePanel } from './TranscriptionQueuePanel'
+import { CaptionTemplatesPanel } from './CaptionTemplatesPanel'
+import { SemanticCollectionsPanel } from './SemanticCollectionsPanel'
 
 function modelFor(quality: string, language: string): string {
   const base = quality === 'fast' ? 'tiny' : quality === 'accurate' ? 'small' : 'base'
@@ -118,7 +123,9 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
   const addTextEdit = useAppStore((state) => state.addTextEdit)
   const restoreTextEdit = useAppStore((state) => state.restoreTextEdit)
   const addSemanticHint = useAppStore((state) => state.addSemanticHint)
-  const [tab, setTab] = useState<'transcript' | 'captions' | 'semantic' | 'topics' | 'highlights' | 'versions'>('transcript')
+  const speakerLabels = useAppStore((state) => state.speakerLabels)
+  const userVocabulary = useAppStore((state) => state.userVocabulary)
+  const [tab, setTab] = useState<'transcript' | 'queue' | 'speakers' | 'review' | 'captions' | 'semantic' | 'collections' | 'topics' | 'highlights' | 'versions'>('transcript')
   const [scope, setScope] = useState<TranscriptionScope>('all-clips')
   const [query, setQuery] = useState('')
   const [editingWord, setEditingWord] = useState<string | null>(null)
@@ -126,6 +133,7 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
   const [pauseThreshold, setPauseThreshold] = useState(1)
   const [playback, setPlayback] = useState<{ clipId: string; time: number } | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
+  const [speakerFilter, setSpeakerFilter] = useState('all')
 
   useEffect(() => {
     if (!open) return
@@ -150,9 +158,16 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
     const normalized = query.trim().toLowerCase()
     if (!normalized) return []
     return transcripts.flatMap((transcript) => transcript.segments
-      .filter((segment) => segment.text.toLowerCase().includes(normalized))
+      .filter((segment) => segment.text.toLowerCase().includes(normalized) && (speakerFilter === 'all' || segment.speakerId === speakerFilter || segment.words.some((word) => word.speakerId === speakerFilter)))
       .map((segment) => ({ transcript, segment })))
-  }, [query, transcripts])
+  }, [query, speakerFilter, transcripts])
+
+  const speakerName = (speakerId: string | null | undefined): string => {
+    if (!speakerId) return 'Unknown Speaker'
+    const label = speakerLabels.find((item) => item.speakerId === speakerId)
+    const resolved = label?.mergedInto ? speakerLabels.find((item) => item.speakerId === label.mergedInto) : label
+    return resolved?.displayName ?? 'Unknown Speaker'
+  }
 
   if (!open) return null
 
@@ -174,7 +189,7 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
     const id = crypto.randomUUID()
     begin(id)
     try {
-      complete(await window.autoCut.transcribe({ jobId: id, projectId, sources, settings: settings.transcription }))
+      complete(await window.autoCut.transcribe({ jobId: id, projectId, sources, settings: settings.transcription, vocabulary: userVocabulary }))
       setStatus(await window.autoCut.getTranscriptionStatus())
     } catch (operationError) {
       fail(operationError instanceof Error ? operationError.message : 'Transcription failed.')
@@ -217,7 +232,7 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
 
   const generateCaptions = async (): Promise<void> => {
     if (!plan) return
-    setCaptionTrack(await window.autoCut.buildCaptionTrack({ plan, transcripts, settings: settings.captions }))
+    setCaptionTrack(await window.autoCut.buildCaptionTrack({ plan, transcripts, settings: { ...settings.captions, showSpeakerNames: settings.speakers.showSpeakerNamesInCaptions || settings.captions.showSpeakerNames }, speakerLabels }))
   }
 
   const captionTrack = plan?.captionTrack ?? null
@@ -228,8 +243,12 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
         <div><FileText size={18} /><span><h2>Transcript</h2><small>Content analysis · revision {useAppStore.getState().transcriptEditRevision}</small></span></div>
         <div className="segmented-control transcript-tabs">
           <button className={tab === 'transcript' ? 'active' : ''} type="button" onClick={() => setTab('transcript')}>Transcript</button>
+          <button className={tab === 'queue' ? 'active' : ''} type="button" onClick={() => setTab('queue')}>Queue</button>
+          <button className={tab === 'speakers' ? 'active' : ''} type="button" onClick={() => setTab('speakers')}>Speakers</button>
+          <button className={tab === 'review' ? 'active' : ''} type="button" onClick={() => setTab('review')}>Review</button>
           <button className={tab === 'captions' ? 'active' : ''} type="button" onClick={() => setTab('captions')}>Captions</button>
           <button className={tab === 'semantic' ? 'active' : ''} type="button" onClick={() => setTab('semantic')}>Semantic</button>
+          <button className={tab === 'collections' ? 'active' : ''} type="button" onClick={() => setTab('collections')}>Collections</button>
           <button className={tab === 'topics' ? 'active' : ''} type="button" onClick={() => setTab('topics')}>Topics</button>
           <button className={tab === 'highlights' ? 'active' : ''} type="button" onClick={() => setTab('highlights')}>Highlights</button>
           <button className={tab === 'versions' ? 'active' : ''} type="button" onClick={() => setTab('versions')}>Versions</button>
@@ -258,13 +277,13 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
           </aside>
 
           <div className="transcript-browser">
-            <label className="transcript-search"><Search size={15} /><input placeholder="Search transcript" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+            <div className="transcript-search-row"><label className="transcript-search"><Search size={15} /><input placeholder="Search transcript" value={query} onChange={(event) => setQuery(event.target.value)} /></label><select aria-label="Filter transcript by speaker" value={speakerFilter} onChange={(event) => setSpeakerFilter(event.target.value)}><option value="all">All Speakers</option>{speakerLabels.filter((label) => !label.mergedInto).map((label) => <option value={label.speakerId} key={label.speakerId}>{label.displayName}</option>)}</select></div>
             {query && <div className="transcript-search-results">{results.map(({ transcript, segment }) => <button key={`${transcript.id}-${segment.id}`} type="button" onClick={() => seek(transcript.sourceClipId, segment.start)}><strong>{clips.find((clip) => clip.id === transcript.sourceClipId)?.filename}</strong><span>{clock(segment.start)} - {segment.text}</span></button>)}</div>}
             {!query && transcripts.length === 0 && <div className="transcript-empty"><Captions size={28} /><strong>No transcript yet</strong><span>Install a local model and transcribe selected media.</span></div>}
             {!query && transcripts.map((transcript) => (
               <section className="transcript-document" key={transcript.id}>
                 <header><div><strong>{clips.find((clip) => clip.id === transcript.sourceClipId)?.filename ?? transcript.sourcePath}</strong><span>{transcript.noSpeech ? 'No speech detected' : `${transcript.words.length} words - ${transcript.detectedLanguage ?? transcript.language}`}</span></div><button type="button" onClick={async () => { const marked = await window.autoCut.detectFillers(transcript); replaceTranscript(marked) }}>Review Fillers</button></header>
-                {transcript.segments.map((segment) => <div className="transcript-segment" key={segment.id}><button className="transcript-timestamp" type="button" onClick={() => seek(transcript.sourceClipId, segment.start)}>{clock(segment.start)}</button><p>{segment.words.length ? segment.words.map((word) => editingWord === word.id ? <input className="transcript-word-input" key={word.id} defaultValue={word.text} onBlur={(event) => { correctWord(transcript.id, word.id, event.target.value); setEditingWord(null); void persistCurrentTranscript(transcript.id) }} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }} /> : <button key={word.id} className={`transcript-word ${word.filler ? 'transcript-word-filler' : ''} ${word.confidence != null && word.confidence < 0.35 ? 'transcript-word-low' : ''} ${playback?.clipId === transcript.sourceClipId && playback.time >= word.start && playback.time <= word.end ? 'transcript-word-active' : ''} ${selection?.transcriptId === transcript.id && (selection.anchor === word.id || selection.focus === word.id) ? 'transcript-word-selected' : ''}`} title={word.confidence != null && word.confidence < 0.35 ? 'Low confidence' : word.filler ? 'Possible filler word' : 'Click to seek; Shift-click to select a range'} type="button" onClick={(event) => { seek(transcript.sourceClipId, word.start); setSelection(event.shiftKey && selection?.transcriptId === transcript.id ? { ...selection, focus: word.id } : { transcriptId: transcript.id, anchor: word.id, focus: word.id }) }} onDoubleClick={() => setEditingWord(word.id)}>{word.text}</button>) : segment.text}</p></div>)}
+                {transcript.segments.filter((segment) => speakerFilter === 'all' || segment.speakerId === speakerFilter || segment.words.some((word) => word.speakerId === speakerFilter)).map((segment) => <div className="transcript-segment" key={segment.id}><button className="transcript-timestamp" type="button" onClick={() => seek(transcript.sourceClipId, segment.start)}>{clock(segment.start)}</button><div><span className="transcript-speaker-label">{speakerName(segment.speakerId)}</span><p>{segment.words.length ? segment.words.map((word) => editingWord === word.id ? <input className="transcript-word-input" key={word.id} defaultValue={word.text} onBlur={(event) => { correctWord(transcript.id, word.id, event.target.value); setEditingWord(null); void persistCurrentTranscript(transcript.id) }} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }} /> : <button key={word.id} className={`transcript-word ${word.filler ? 'transcript-word-filler' : ''} ${word.confidenceLevel === 'low' || (word.confidence != null && word.confidence < 0.35) ? 'transcript-word-low' : ''} ${playback?.clipId === transcript.sourceClipId && playback.time >= word.start && playback.time <= word.end ? 'transcript-word-active' : ''} ${selection?.transcriptId === transcript.id && (selection.anchor === word.id || selection.focus === word.id) ? 'transcript-word-selected' : ''}`} title={word.confidenceLevel === 'low' ? 'Low confidence - review recommended' : word.filler ? 'Possible filler word' : 'Click to seek; Shift-click to select a range'} type="button" onClick={(event) => { seek(transcript.sourceClipId, word.start); setSelection(event.shiftKey && selection?.transcriptId === transcript.id ? { ...selection, focus: word.id } : { transcriptId: transcript.id, anchor: word.id, focus: word.id }) }} onDoubleClick={() => setEditingWord(word.id)}>{word.text}</button>) : segment.text}</p></div></div>)}
               </section>
             ))}
           </div>
@@ -286,7 +305,7 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
             {textEdits.some((edit) => !edit.restored) && <><h3>Removed Ranges</h3><div className="removed-range-list">{textEdits.filter((edit) => !edit.restored).map((edit) => <button key={edit.id} type="button" onClick={() => { if (!plan) return; try { updatePlan(() => restoreTranscriptRange(plan, edit)); restoreTextEdit(edit.id); setEditError(null) } catch (operationError) { setEditError(operationError instanceof Error ? operationError.message : 'The range could not be restored.') } }}><RotateCcw size={13} /> Restore {clock(edit.start)}-{clock(edit.end)}</button>)}</div></>}
           </aside>
         </div>
-      ) : tab === 'captions' ? (
+      ) : tab === 'queue' ? <TranscriptionQueuePanel /> : tab === 'speakers' ? <SpeakersPanel /> : tab === 'review' ? <ConfidencePanel /> : tab === 'captions' ? (
         <div className="caption-layout">
           <aside className="caption-controls">
             <h3>Caption Configuration</h3>
@@ -314,8 +333,9 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
             {captionTrack && <div className="subtitle-export-actions"><button className="button button-secondary" type="button" onClick={() => void window.autoCut.exportSubtitles({ projectName: settings.name, format: 'srt', track: captionTrack })}><Download size={14} /> SRT</button><button className="button button-secondary" type="button" onClick={() => void window.autoCut.exportSubtitles({ projectName: settings.name, format: 'vtt', track: captionTrack })}><Download size={14} /> VTT</button></div>}
           </aside>
           <div className="caption-inspector"><header><div><h3>Caption Inspector</h3><span>{captionTrack?.chunks.filter((chunk) => !chunk.deleted).length ?? 0} captions</span></div>{captionTrack && <span className="caption-ready"><Check size={14} /> Preview ready</span>}</header>{captionTrack ? <CaptionInspector chunks={captionTrack.chunks} /> : <div className="transcript-empty"><Captions size={28} /><strong>No caption track</strong><span>Generate captions from the current transcript and frozen Edit Plan.</span></div>}</div>
+          <CaptionTemplatesPanel settings={settings.captions} apply={updateCaptionSettings} />
         </div>
-      ) : tab === 'semantic' ? <SemanticPanel /> : tab === 'topics' ? <TopicsPanel /> : tab === 'highlights' ? <HighlightsPanel closeWorkspace={close} /> : <VersionsPanel />}
+      ) : tab === 'semantic' ? <SemanticPanel /> : tab === 'collections' ? <SemanticCollectionsPanel /> : tab === 'topics' ? <TopicsPanel /> : tab === 'highlights' ? <HighlightsPanel closeWorkspace={close} /> : <VersionsPanel />}
     </section>
   )
 }

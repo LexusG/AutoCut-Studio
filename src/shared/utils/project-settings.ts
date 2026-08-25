@@ -156,7 +156,15 @@ export function createDefaultProjectSettings(): ProjectSettings {
       languageSupport: 'english',
       editGoal: '',
       editGoalStrength: 'balanced'
-    }
+    },
+    speakers: {
+      diarizationEnabled: false,
+      speakerCount: 'auto',
+      showSpeakerNamesInCaptions: false,
+      preferredSpeakerId: null,
+      speakerBalance: 'off'
+    },
+    captionTemplateId: 'clean'
   }
 }
 
@@ -217,13 +225,15 @@ export function applyPlatformPreset(settings: ProjectSettings, presetId: string)
     captions: {
       ...settings.captions,
       mode: social ? 'dynamic' : settings.captions.mode,
+      templateId: social ? 'social-bold' : preset.platform === 'linkedin' ? 'minimal' : 'clean',
       safeAreaPreset,
       style: {
         ...settings.captions.style,
-        preset: social ? 'bold' : 'clean',
+        preset: social ? 'social-bold' : preset.platform === 'linkedin' ? 'minimal' : 'clean',
         position: social ? 'lower-middle' : 'bottom'
       }
-    }
+    },
+    captionTemplateId: social ? 'social-bold' : preset.platform === 'linkedin' ? 'minimal' : 'clean'
   })
 }
 
@@ -355,11 +365,14 @@ export function createProjectFile(
   },
   phase8: Pick<ProjectFile, 'semanticAnalysis' | 'topics' | 'semanticHints' | 'highlightCandidates' | 'outputVariants'> = {
     semanticAnalysis: null, topics: [], semanticHints: [], highlightCandidates: [], outputVariants: []
+  },
+  phase9: Pick<ProjectFile, 'diarizationReferences' | 'speakerLabels' | 'confidenceReviews' | 'userVocabulary' | 'semanticCollections' | 'projectCaptionTemplates'> = {
+    diarizationReferences: [], speakerLabels: [], confidenceReviews: [], userVocabulary: [], semanticCollections: [], projectCaptionTemplates: []
   }
 ): ProjectFile {
   const now = new Date().toISOString()
   return {
-    version: 7,
+    version: 8,
     id: existing?.id ?? crypto.randomUUID(),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
@@ -375,7 +388,13 @@ export function createProjectFile(
     topics: structuredClone(phase8.topics),
     semanticHints: structuredClone(phase8.semanticHints),
     highlightCandidates: structuredClone(phase8.highlightCandidates),
-    outputVariants: structuredClone(phase8.outputVariants)
+    outputVariants: structuredClone(phase8.outputVariants),
+    diarizationReferences: structuredClone(phase9.diarizationReferences),
+    speakerLabels: structuredClone(phase9.speakerLabels),
+    confidenceReviews: structuredClone(phase9.confidenceReviews),
+    userVocabulary: structuredClone(phase9.userVocabulary),
+    semanticCollections: structuredClone(phase9.semanticCollections),
+    projectCaptionTemplates: structuredClone(phase9.projectCaptionTemplates)
   }
 }
 

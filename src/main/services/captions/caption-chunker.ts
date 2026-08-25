@@ -29,7 +29,9 @@ export function chunkCaptionWords(words: CaptionWord[], mode: Exclude<CaptionMod
     const start = current[0].start
     chunks.push({
       id: randomUUID(), start, end: Math.max(spokenEnd, Math.min(start + options.minimumDuration, start + options.maximumDuration)),
-      text, words: current, styleOverride: null, deleted: false
+      text, words: current, styleOverride: null, deleted: false,
+      speakerId: current[0].speakerId ?? null,
+      speakerLabel: current[0].speakerLabel ?? null
     })
     current = []
   }
@@ -39,7 +41,8 @@ export function chunkCaptionWords(words: CaptionWord[], mode: Exclude<CaptionMod
     const duration = current.length ? word.end - current[0].start : word.end - word.start
     if (current.length && (
       current.length >= options.maximumWords || proposedText.length > options.maximumCharacters ||
-      duration > options.maximumDuration || (previous && word.start - previous.end >= options.pauseBoundary)
+      duration > options.maximumDuration || (previous && word.start - previous.end >= options.pauseBoundary) ||
+      (previous?.speakerId ?? null) !== (word.speakerId ?? null)
     )) flush()
     current.push(word)
     if (punctuationBoundary(word.text) && current.length >= (mode === 'dynamic' ? 2 : 4)) flush()

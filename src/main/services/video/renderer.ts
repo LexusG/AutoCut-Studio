@@ -1,4 +1,4 @@
-import { appendFile, copyFile, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
+import { appendFile, copyFile, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -28,6 +28,36 @@ import { promotePreview } from './preview-storage'
 import { buildRenderPlan } from './render-planner'
 import { executeRender, renderDimensions } from './render-executor'
 import { InfeasibleDurationError } from './segment-allocator'
+
+async function createPreviewThumbnail(
+  ffmpegPath: string,
+  previewPath: string,
+  thumbnailPath: string,
+  duration: number,
+  signal: AbortSignal
+): Promise<void> {
+  let lastError: unknown = new Error('FFmpeg did not create a preview thumbnail.')
+  for (const seek of [Math.min(duration / 2, Math.max(0, duration - 0.1)), 0]) {
+    try {
+      await rm(thumbnailPath, { force: true })
+      await runProcess(ffmpegPath, [
+        '-hide_banner', '-loglevel', 'error',
+        '-ss', seek.toFixed(3),
+        '-i', previewPath,
+        '-frames:v', '1',
+        '-vf', 'scale=320:-2',
+        '-q:v', '3',
+        '-y', thumbnailPath
+      ], { signal })
+      const file = await stat(thumbnailPath)
+      if (file.isFile() && file.size > 0) return
+    } catch (error) {
+      if (signal.aborted) throw error
+      lastError = error
+    }
+  }
+  throw lastError
+}
 import { probeMedia } from './metadata'
 import { applySmartSelection } from './smart/smart-selection'
 import type { PersonPresenceProvider } from './smart/optional-ml'
@@ -219,15 +249,13 @@ export async function generatePreview(
       duration: plan.expectedDuration
     })
     try {
-      await runProcess(status.ffmpeg.path, [
-        '-hide_banner', '-loglevel', 'error',
-        '-ss', Math.min(verified.duration / 2, Math.max(0, verified.duration - 0.1)).toFixed(3),
-        '-i', workspace.previewPath,
-        '-frames:v', '1',
-        '-vf', 'scale=320:-2',
-        '-q:v', '3',
-        '-y', workspace.thumbnailPath
-      ], { signal })
+      await createPreviewThumbnail(
+        status.ffmpeg.path,
+        workspace.previewPath,
+        workspace.thumbnailPath,
+        verified.duration,
+        signal
+      )
       allowMediaPath(workspace.thumbnailPath)
       thumbnailReady = true
     } catch (error) {

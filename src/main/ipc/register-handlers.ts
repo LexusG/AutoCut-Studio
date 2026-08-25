@@ -1,6 +1,6 @@
 import { access, writeFile } from 'node:fs/promises'
 import { basename, extname, isAbsolute, resolve } from 'node:path'
-import { dialog, ipcMain, shell } from 'electron'
+import { clipboard, dialog, ipcMain, shell } from 'electron'
 import { AUDIO_FILE_FILTER } from '@shared/constants/audio'
 import { VIDEO_FILE_FILTER } from '@shared/constants/media'
 import {
@@ -22,7 +22,11 @@ import {
   type SemanticSearchRequest,
   type HighlightDiscoveryRequest,
   type HighlightReelRequest,
-  type ChapterExportRequest
+  type ChapterExportRequest,
+  type RuntimeComponentId,
+  type DiarizationRequest,
+  type SpeakerDiarizationReference,
+  type TranscriptionQueueRequest
 } from '@shared/types'
 import { parseProjectFile } from '@shared/utils/project-codec'
 import { sanitizeFilenamePart } from '@shared/utils/project-settings'
@@ -68,6 +72,16 @@ import { semanticSearch } from '../services/semantic/search-service'
 import { findHighlights } from '../services/semantic/highlight-service'
 import { createHighlightReel } from '../services/semantic/highlight-planner'
 import { serializeChapters } from '../services/semantic/chapter-exporter'
+import { applicationStoragePaths } from '../services/filesystem/application-storage'
+import { runtimeDiagnostics } from '../services/runtime/diagnostics-service'
+import { repairRuntimeComponent } from '../services/runtime/runtime-manager'
+import { clearFfmpegStatusCache } from '../services/ffmpeg/binaries'
+import { getDiarizationModelStatus, installDiarizationModels, removeDiarizationModels } from '../services/diarization/model-manager'
+import { cancelDiarization, diarizeProject } from '../services/diarization/job-manager'
+import { loadProjectDiarization } from '../services/diarization/repository'
+import { cancelAllTranscriptionQueueItems, cancelCurrentTranscriptionQueueItem, pauseTranscriptionQueue, resumeTranscriptionQueue, runTranscriptionQueue } from '../services/transcription/queue-manager'
+import { deleteCaptionTemplate, duplicateCaptionTemplate, getCaptionTemplates, renameCaptionTemplate, saveCaptionTemplate } from '../services/captions/template-manager'
+import { getProcessingResourceMode, setProcessingResourceMode } from '../services/runtime/processing-preferences'
 
 const MAX_FILES_PER_IMPORT = 250
 
@@ -361,6 +375,75 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 export function registerIpcHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.runtimeDiagnostics, (_event, force: unknown) => runtimeDiagnostics(force === true))
+  ipcMain.handle(IPC_CHANNELS.runtimeRepair, async (_event, value: unknown) => {
+    const ids: RuntimeComponentId[] = ['ffmpeg', 'ffprobe', 'whisper-cpp', 'mediapipe-pose', 'minilm', 'sherpa-onnx-diarization', 'vad', 'beat-analysis']
+    if (typeof value !== 'string' || !ids.includes(value as RuntimeComponentId)) throw new Error('The runtime component is invalid.')
+    const component = await repairRuntimeComponent(value as RuntimeComponentId)
+    clearFfmpegStatusCache()
+    return { componentId: value, repaired: component.status === 'ready', message: component.status === 'ready' ? `${component.name} is ready.` : component.error ?? `${component.name} is unavailable.`, component }
+  })
+  ipcMain.handle(IPC_CHANNELS.runtimeOpenStorage, () => shell.openPath(applicationStoragePaths().root))
+  ipcMain.handle(IPC_CHANNELS.runtimeCopyDiagnostics, async () => {
+    clipboard.writeText((await runtimeDiagnostics(true)).report)
+  })
+  ipcMain.handle(IPC_CHANNELS.runtimeGetResourceMode, () => getProcessingResourceMode())
+  ipcMain.handle(IPC_CHANNELS.runtimeSetResourceMode, (_event, mode: unknown) => {
+    if (mode !== 'low-memory' && mode !== 'balanced' && mode !== 'maximum-performance') throw new Error('Processing resource mode is invalid.')
+    return setProcessingResourceMode(mode)
+  })
+  ipcMain.handle(IPC_CHANNELS.diarizationStatus, () => getDiarizationModelStatus())
+  ipcMain.handle(IPC_CHANNELS.diarizationInstallModels, (event) => installDiarizationModels((percent) => {
+    if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.diarizationModelProgress, percent)
+  }))
+  ipcMain.handle(IPC_CHANNELS.diarizationRemoveModels, () => removeDiarizationModels())
+  ipcMain.handle(IPC_CHANNELS.diarizationRun, (event, value: unknown, transcripts: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The speaker detection request is invalid.')
+    const request = value as DiarizationRequest
+    validateRenderId(request.jobId)
+    validateStorageId(request.projectId, 'Project')
+    if (!Array.isArray(request.sources) || !request.sources.length || request.sources.length > MAX_FILES_PER_IMPORT) throw new Error('Choose one or more clips for speaker detection.')
+    if (!Array.isArray(transcripts)) throw new Error('Speaker-aware transcript input is invalid.')
+    return diarizeProject(request, transcripts as Transcript[], (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.diarizationProgress, progress)
+    })
+  })
+  ipcMain.handle(IPC_CHANNELS.diarizationCancel, (_event, jobId: unknown) => typeof jobId === 'string' && cancelDiarization(jobId))
+  ipcMain.handle(IPC_CHANNELS.diarizationLoad, (_event, projectId: unknown, references: unknown) => {
+    const id = validateStorageId(projectId, 'Project')
+    if (!Array.isArray(references)) throw new Error('Speaker analysis references are invalid.')
+    return loadProjectDiarization(id, references as SpeakerDiarizationReference[])
+  })
+  ipcMain.handle(IPC_CHANNELS.transcriptionQueueRun, (event, value: unknown) => {
+    if (!value || typeof value !== 'object') throw new Error('The transcription queue request is invalid.')
+    const request = value as TranscriptionQueueRequest
+    validateRenderId(request.queueId); validateStorageId(request.projectId, 'Project')
+    if (!Array.isArray(request.sources) || !request.sources.length || request.sources.length > MAX_FILES_PER_IMPORT) throw new Error('Choose one or more clips to queue.')
+    return runTranscriptionQueue(request, (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send(IPC_CHANNELS.transcriptionQueueProgress, progress)
+    })
+  })
+  ipcMain.handle(IPC_CHANNELS.transcriptionQueuePause, (_event, id: unknown) => typeof id === 'string' && pauseTranscriptionQueue(id))
+  ipcMain.handle(IPC_CHANNELS.transcriptionQueueResume, (_event, id: unknown) => typeof id === 'string' && resumeTranscriptionQueue(id))
+  ipcMain.handle(IPC_CHANNELS.transcriptionQueueCancelCurrent, (_event, id: unknown) => typeof id === 'string' && cancelCurrentTranscriptionQueueItem(id))
+  ipcMain.handle(IPC_CHANNELS.transcriptionQueueCancelAll, (_event, id: unknown) => typeof id === 'string' && cancelAllTranscriptionQueueItems(id))
+  ipcMain.handle(IPC_CHANNELS.captionTemplatesGet, () => getCaptionTemplates())
+  ipcMain.handle(IPC_CHANNELS.captionTemplatesSave, (_event, name: unknown, settings: unknown) => {
+    if (typeof name !== 'string' || !settings || typeof settings !== 'object') throw new Error('The caption template is invalid.')
+    return saveCaptionTemplate(name, settings as import('@shared/types').CaptionSettings)
+  })
+  ipcMain.handle(IPC_CHANNELS.captionTemplatesRename, (_event, id: unknown, name: unknown) => {
+    if (typeof id !== 'string' || typeof name !== 'string') throw new Error('The caption template rename is invalid.')
+    return renameCaptionTemplate(id, name)
+  })
+  ipcMain.handle(IPC_CHANNELS.captionTemplatesDuplicate, (_event, id: unknown) => {
+    if (typeof id !== 'string') throw new Error('The caption template is invalid.')
+    return duplicateCaptionTemplate(id)
+  })
+  ipcMain.handle(IPC_CHANNELS.captionTemplatesDelete, (_event, id: unknown) => {
+    if (typeof id !== 'string') throw new Error('The caption template is invalid.')
+    return deleteCaptionTemplate(id)
+  })
   ipcMain.handle(IPC_CHANNELS.ffmpegStatus, () => detectFfmpeg())
 
   ipcMain.handle(IPC_CHANNELS.chooseVideos, async () => {

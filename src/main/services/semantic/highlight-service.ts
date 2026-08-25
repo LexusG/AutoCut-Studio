@@ -68,7 +68,10 @@ export async function findHighlights(request: HighlightDiscoveryRequest): Promis
     const excluded = hint?.kind === 'exclude' || (topic ? excludedTopics.has(topic.id) : false)
     const importanceBonus = topic && importantTopics.has(topic.id) ? 0.1 : 0
     const prioritizeBonus = hint?.kind === 'prioritize' ? 0.12 : 0
-    const total = excluded ? 0 : clamp(visual * 0.22 + audio * 0.1 + speech * 0.2 + person * 0.08 + semantic * 0.24 + 0.16 + importanceBonus + prioritizeBonus)
+    const speakerId = chunk.speakerIds?.length === 1 ? chunk.speakerIds[0] : null
+    const speakerBonus = request.preferredSpeakerId && speakerId === request.preferredSpeakerId ? 0.08 * visual : 0
+    const filtered = Boolean(request.speakerFilter && speakerId !== request.speakerFilter)
+    const total = excluded || filtered ? 0 : clamp(visual * 0.22 + audio * 0.1 + speech * 0.2 + person * 0.08 + semantic * 0.24 + 0.16 + importanceBonus + prioritizeBonus + speakerBonus)
     const reasons = [
       semantic >= 0.55 ? 'Relevant to Edit Goal' : null,
       speech >= 0.6 ? 'Complete spoken moment' : null,
@@ -92,10 +95,11 @@ export async function findHighlights(request: HighlightDiscoveryRequest): Promis
       personPresent: person >= 0.35,
       selected: false,
       locked: false,
-      excluded,
+      excluded: excluded || filtered,
       alternativeIds: [],
       thumbnailPath: null,
-      thumbnailUrl: null
+      thumbnailUrl: null,
+      speakerId
     }
   })
 
@@ -111,7 +115,8 @@ export async function findHighlights(request: HighlightDiscoveryRequest): Promis
       }, 0)
       const topicBonus = chosen.some((item) => item.topicId === candidate.topicId) ? 0 : 0.08
       const sourceBonus = chosen.some((item) => item.sourceClipId === candidate.sourceClipId) ? 0 : 0.05
-      return { candidate, rank: candidate.scores.total - Math.max(0, redundancy - 0.72) * 0.55 + topicBonus + sourceBonus, redundancy }
+      const speakerBonus = request.speakerBalance === 'balanced' && candidate.speakerId && !chosen.some((item) => item.speakerId === candidate.speakerId) ? 0.06 : 0
+      return { candidate, rank: candidate.scores.total - Math.max(0, redundancy - 0.72) * 0.55 + topicBonus + sourceBonus + speakerBonus, redundancy }
     }).sort((left, right) => right.rank - left.rank)[0]
     if (!next) break
     next.candidate.scores.novelty = clamp(1 - next.redundancy)

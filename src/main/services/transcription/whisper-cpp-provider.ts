@@ -119,10 +119,12 @@ export class WhisperCppProvider implements TranscriptionProvider {
         for (const match of text.matchAll(/progress\s*=\s*(\d+)%/gi)) progress = Math.max(progress, Number(match[1]))
         input.onProgress?.(progress)
       }
+      const vocabulary = [...new Set((input.vocabulary ?? []).map((term) => term.trim()).filter(Boolean))].slice(0, 100).join(', ')
       await runProcess(executable, [
         '-m', modelPath, '-f', input.audioPath, '-l', language,
         '-t', String(Math.max(1, Math.min(8, input.settings.threads))),
-        '-ojf', '-ml', '1', '-sow', '-of', outputBase, '-pp', '-sns'
+        '-ojf', '-ml', '1', '-sow', '-of', outputBase, '-pp', '-sns',
+        ...(vocabulary ? ['--prompt', vocabulary, '--carry-initial-prompt'] : [])
       ], {
         signal: input.signal,
         onStdout: captureProgress,

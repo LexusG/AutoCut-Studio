@@ -7,12 +7,45 @@
   "author": "AutoCut Studio contributors",
   "license": "MIT",
   "build": {
+    "appId": "studio.autocut.desktop",
+    "productName": "AutoCut Studio",
+    "artifactName": "AutoCut-Studio-${version}-${arch}.${ext}",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/sherpa-onnx-*/**/*",
+      "node_modules/onnxruntime-node/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/@img/**/*"
+    ],
+    "files": [
+      "out/**/*",
+      "package.json",
+      "!node_modules/onnxruntime-node/bin/napi-v6/darwin/**/*",
+      "!node_modules/onnxruntime-node/bin/napi-v6/win32/**/*",
+      "!node_modules/onnxruntime-node/bin/napi-v6/linux/!(${arch})/**/*",
+      "!node_modules/onnxruntime-node/bin/napi-v6/linux/${arch}/libonnxruntime_providers_cuda.so",
+      "!node_modules/onnxruntime-node/bin/napi-v6/linux/${arch}/libonnxruntime_providers_tensorrt.so"
+    ],
+    "afterPack": "scripts/validate-package.cjs",
     "extraResources": [
       {
         "from": "resources",
-        "to": "resources"
+        "to": "resources",
+        "filter": ["**/*", "!whisper.cpp/**/*"]
+      },
+      {
+        "from": ".runtime-stage/linux-${arch}",
+        "to": "resources/runtime/linux-${arch}"
       }
-    ]
+    ],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "AudioVideo;AudioVideoEditing",
+      "executableName": "autocut-studio",
+      "maintainer": "AutoCut Studio contributors",
+      "synopsis": "Local-first automatic video editor"
+    },
+    "directories": { "output": "release" }
   },
   "scripts": {
     "dev": "electron-vite dev",
@@ -21,26 +54,35 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:smoke": "npm run build && playwright test"
+    "test:smoke": "npm run build && playwright test",
+    "runtime:prepare:x64": "node scripts/prepare-runtime.mjs x64",
+    "runtime:prepare:arm64": "node scripts/prepare-runtime.mjs arm64",
+    "package:x64": "npm run build && npm run runtime:prepare:x64 && electron-builder --linux AppImage deb --x64",
+    "package:dir:x64": "npm run build && npm run runtime:prepare:x64 && electron-builder --linux dir --x64",
+    "package:arm64": "npm run build && npm run runtime:prepare:arm64 && electron-builder --linux AppImage deb --arm64"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "@mediapipe/tasks-vision": "^0.10.35",
-    "@tailwindcss/vite": "^4.1.11",
     "lucide-react": "^0.539.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "tailwindcss": "^4.1.11",
+    "sherpa-onnx-node": "^1.13.6",
     "zustand": "^5.0.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "@tailwindcss/vite": "^4.1.11",
     "@types/node": "^24.2.1",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^4.7.0",
     "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^4.0.0",
+    "ffmpeg-static": "^5.3.0",
+    "ffprobe-static": "^3.1.0",
+    "tailwindcss": "^4.1.11",
     "typescript": "^5.9.2",
     "vite": "^7.1.1",
     "vitest": "^3.2.4"

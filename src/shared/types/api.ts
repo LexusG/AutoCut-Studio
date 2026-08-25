@@ -32,6 +32,7 @@ import type {
   TranscriptionResult,
   TranscriptionStatus
 } from './transcription'
+import type { CaptionTemplate } from './phase9'
 import type {
   ChapterExportRequest,
   HighlightCandidate,
@@ -46,6 +47,16 @@ import type {
   SemanticSearchRequest,
   SemanticSearchResult
 } from './semantic'
+import type { ProcessingResourceMode, RuntimeComponentId, RuntimeDiagnostics, RuntimeRepairResult } from './runtime'
+import type {
+  DiarizationAnalysisResult,
+  DiarizationModelStatus,
+  DiarizationProgress,
+  DiarizationRequest,
+  SpeakerDiarizationReference,
+  SpeakerDiarizationResult
+} from './phase9'
+import type { TranscriptionQueueProgress, TranscriptionQueueRequest } from './phase9'
 
 export interface PersonAnalysisFrame {
   timestamp: number
@@ -73,6 +84,31 @@ export interface PersonDetectionStatus {
 }
 
 export interface AutoCutApi {
+  getRuntimeDiagnostics: (force?: boolean) => Promise<RuntimeDiagnostics>
+  repairRuntime: (componentId: RuntimeComponentId) => Promise<RuntimeRepairResult>
+  openProcessingStorage: () => Promise<string>
+  copyRuntimeDiagnostics: () => Promise<void>
+  getProcessingResourceMode: () => Promise<ProcessingResourceMode>
+  setProcessingResourceMode: (mode: ProcessingResourceMode) => Promise<ProcessingResourceMode>
+  getDiarizationStatus: () => Promise<DiarizationModelStatus>
+  installDiarizationModels: () => Promise<DiarizationModelStatus>
+  removeDiarizationModels: () => Promise<void>
+  onDiarizationModelProgress: (callback: (percent: number) => void) => () => void
+  diarize: (request: DiarizationRequest, transcripts: Transcript[]) => Promise<DiarizationAnalysisResult>
+  cancelDiarization: (jobId: string) => Promise<boolean>
+  onDiarizationProgress: (callback: (progress: DiarizationProgress) => void) => () => void
+  loadDiarization: (projectId: string, references: SpeakerDiarizationReference[]) => Promise<SpeakerDiarizationResult[]>
+  runTranscriptionQueue: (request: TranscriptionQueueRequest) => Promise<TranscriptionResult>
+  pauseTranscriptionQueue: (queueId: string) => Promise<boolean>
+  resumeTranscriptionQueue: (queueId: string) => Promise<boolean>
+  cancelCurrentTranscriptionQueueItem: (queueId: string) => Promise<boolean>
+  cancelAllTranscriptionQueueItems: (queueId: string) => Promise<boolean>
+  onTranscriptionQueueProgress: (callback: (progress: TranscriptionQueueProgress) => void) => () => void
+  getCaptionTemplates: () => Promise<CaptionTemplate[]>
+  saveCaptionTemplate: (name: string, settings: import('./transcription').CaptionSettings) => Promise<CaptionTemplate>
+  renameCaptionTemplate: (id: string, name: string) => Promise<CaptionTemplate[]>
+  duplicateCaptionTemplate: (id: string) => Promise<CaptionTemplate>
+  deleteCaptionTemplate: (id: string) => Promise<CaptionTemplate[]>
   getFfmpegStatus: () => Promise<FfmpegStatus>
   chooseVideoFiles: () => Promise<string[]>
   importVideoFiles: (paths: string[]) => Promise<ImportResult>
@@ -130,6 +166,31 @@ export interface AutoCutApi {
 }
 
 export const IPC_CHANNELS = {
+  runtimeDiagnostics: 'runtime:diagnostics',
+  runtimeRepair: 'runtime:repair',
+  runtimeOpenStorage: 'runtime:open-storage',
+  runtimeCopyDiagnostics: 'runtime:copy-diagnostics',
+  runtimeGetResourceMode: 'runtime:get-resource-mode',
+  runtimeSetResourceMode: 'runtime:set-resource-mode',
+  diarizationStatus: 'diarization:status',
+  diarizationInstallModels: 'diarization:install-models',
+  diarizationRemoveModels: 'diarization:remove-models',
+  diarizationModelProgress: 'diarization:model-progress',
+  diarizationRun: 'diarization:run',
+  diarizationCancel: 'diarization:cancel',
+  diarizationProgress: 'diarization:progress',
+  diarizationLoad: 'diarization:load',
+  transcriptionQueueRun: 'transcription-queue:run',
+  transcriptionQueuePause: 'transcription-queue:pause',
+  transcriptionQueueResume: 'transcription-queue:resume',
+  transcriptionQueueCancelCurrent: 'transcription-queue:cancel-current',
+  transcriptionQueueCancelAll: 'transcription-queue:cancel-all',
+  transcriptionQueueProgress: 'transcription-queue:progress',
+  captionTemplatesGet: 'caption-templates:get',
+  captionTemplatesSave: 'caption-templates:save',
+  captionTemplatesRename: 'caption-templates:rename',
+  captionTemplatesDuplicate: 'caption-templates:duplicate',
+  captionTemplatesDelete: 'caption-templates:delete',
   ffmpegStatus: 'system:ffmpeg-status',
   chooseVideos: 'files:choose-videos',
   importVideos: 'media:import-videos',

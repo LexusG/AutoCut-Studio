@@ -191,7 +191,7 @@ test('completes local semantic highlights and multi-format repurposing', async (
       highlightCandidates: unknown[]
       outputVariants: Array<{ approval: string; renderPlan: { variantId: string }; previewHistory: unknown[] }>
     }
-    expect(saved.version).toBe(7)
+    expect(saved.version).toBe(8)
     expect(saved.semanticAnalysis.chunkCount).toBeGreaterThanOrEqual(6)
     expect(saved.semanticHints).toHaveLength(2)
     expect(saved.highlightCandidates.length).toBeGreaterThanOrEqual(6)

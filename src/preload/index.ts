@@ -2,6 +2,43 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC_CHANNELS, type AutoCutApi } from '@shared/types'
 
 const api: AutoCutApi = {
+  getRuntimeDiagnostics: (force = false) => ipcRenderer.invoke(IPC_CHANNELS.runtimeDiagnostics, force),
+  repairRuntime: (componentId) => ipcRenderer.invoke(IPC_CHANNELS.runtimeRepair, componentId),
+  openProcessingStorage: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeOpenStorage),
+  copyRuntimeDiagnostics: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeCopyDiagnostics),
+  getProcessingResourceMode: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeGetResourceMode),
+  setProcessingResourceMode: (mode) => ipcRenderer.invoke(IPC_CHANNELS.runtimeSetResourceMode, mode),
+  getDiarizationStatus: () => ipcRenderer.invoke(IPC_CHANNELS.diarizationStatus),
+  installDiarizationModels: () => ipcRenderer.invoke(IPC_CHANNELS.diarizationInstallModels),
+  removeDiarizationModels: () => ipcRenderer.invoke(IPC_CHANNELS.diarizationRemoveModels),
+  onDiarizationModelProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, percent: number): void => callback(percent)
+    ipcRenderer.on(IPC_CHANNELS.diarizationModelProgress, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.diarizationModelProgress, listener)
+  },
+  diarize: (request, transcripts) => ipcRenderer.invoke(IPC_CHANNELS.diarizationRun, request, transcripts),
+  cancelDiarization: (jobId) => ipcRenderer.invoke(IPC_CHANNELS.diarizationCancel, jobId),
+  onDiarizationProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: Parameters<typeof callback>[0]): void => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.diarizationProgress, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.diarizationProgress, listener)
+  },
+  loadDiarization: (projectId, references) => ipcRenderer.invoke(IPC_CHANNELS.diarizationLoad, projectId, references),
+  runTranscriptionQueue: (request) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionQueueRun, request),
+  pauseTranscriptionQueue: (queueId) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionQueuePause, queueId),
+  resumeTranscriptionQueue: (queueId) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionQueueResume, queueId),
+  cancelCurrentTranscriptionQueueItem: (queueId) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionQueueCancelCurrent, queueId),
+  cancelAllTranscriptionQueueItems: (queueId) => ipcRenderer.invoke(IPC_CHANNELS.transcriptionQueueCancelAll, queueId),
+  onTranscriptionQueueProgress: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: Parameters<typeof callback>[0]): void => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.transcriptionQueueProgress, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.transcriptionQueueProgress, listener)
+  },
+  getCaptionTemplates: () => ipcRenderer.invoke(IPC_CHANNELS.captionTemplatesGet),
+  saveCaptionTemplate: (name, settings) => ipcRenderer.invoke(IPC_CHANNELS.captionTemplatesSave, name, settings),
+  renameCaptionTemplate: (id, name) => ipcRenderer.invoke(IPC_CHANNELS.captionTemplatesRename, id, name),
+  duplicateCaptionTemplate: (id) => ipcRenderer.invoke(IPC_CHANNELS.captionTemplatesDuplicate, id),
+  deleteCaptionTemplate: (id) => ipcRenderer.invoke(IPC_CHANNELS.captionTemplatesDelete, id),
   getFfmpegStatus: () => ipcRenderer.invoke(IPC_CHANNELS.ffmpegStatus),
   chooseVideoFiles: () => ipcRenderer.invoke(IPC_CHANNELS.chooseVideos),
   importVideoFiles: (paths) => ipcRenderer.invoke(IPC_CHANNELS.importVideos, paths),

@@ -27,6 +27,9 @@ export function HighlightsPanel({ closeWorkspace }: HighlightsPanelProps): React
   const [preserveOutro, setPreserveOutro] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const labels = useAppStore((state) => state.speakerLabels)
+  const updateSpeakerSettings = useAppStore((state) => state.updateSpeakerSettings)
+  const [speakerFilter, setSpeakerFilter] = useState('all')
 
   const find = async (): Promise<void> => {
     setBusy(true); setError(null)
@@ -35,6 +38,9 @@ export function HighlightsPanel({ closeWorkspace }: HighlightsPanelProps): React
         projectId, plan, editGoal: settings.semantic.editGoal,
         editGoalStrength: settings.semantic.editGoalStrength, semanticHints: hints,
         topicSelections: topics.map((topic) => ({ topicId: topic.id, importance: topic.importance }))
+        , speakerFilter: speakerFilter === 'all' ? null : speakerFilter,
+        preferredSpeakerId: settings.speakers.preferredSpeakerId,
+        speakerBalance: settings.speakers.speakerBalance
       }))
     } catch (operationError) { setError(operationError instanceof Error ? operationError.message : 'Highlights are unavailable.') }
     finally { setBusy(false) }
@@ -68,6 +74,9 @@ export function HighlightsPanel({ closeWorkspace }: HighlightsPanelProps): React
         {durationPreset === 'custom' && <label><span>Custom Duration</span><input aria-label="Custom highlight reel duration" type="number" min="1" max="3600" step="1" value={customDuration} onChange={(event) => setCustomDuration(Math.max(1, Math.min(3600, Number(event.target.value) || 1)))} /></label>}
         <label className="control-check"><input type="checkbox" checked={preserveIntro} onChange={(event) => setPreserveIntro(event.target.checked)} /><span>Preserve Locked Intro</span></label>
         <label className="control-check"><input type="checkbox" checked={preserveOutro} onChange={(event) => setPreserveOutro(event.target.checked)} /><span>Preserve Locked Outro</span></label>
+        <label><span>Highlights From</span><select value={speakerFilter} onChange={(event) => setSpeakerFilter(event.target.value)}><option value="all">All Speakers</option>{labels.filter((label) => !label.mergedInto).map((label) => <option key={label.speakerId} value={label.speakerId}>{label.displayName}</option>)}</select></label>
+        <label><span>Speaker Balance</span><select value={settings.speakers.speakerBalance} onChange={(event) => updateSpeakerSettings({ speakerBalance: event.target.value as typeof settings.speakers.speakerBalance })}><option value="off">Off</option><option value="balanced">Balanced</option><option value="prefer-selected">Prefer Selected Speaker</option></select></label>
+        {settings.speakers.speakerBalance === 'prefer-selected' && <label><span>Prefer Speaker</span><select value={settings.speakers.preferredSpeakerId ?? ''} onChange={(event) => updateSpeakerSettings({ preferredSpeakerId: event.target.value || null })}><option value="">None</option>{labels.filter((label) => !label.mergedInto).map((label) => <option key={label.speakerId} value={label.speakerId}>{label.displayName}</option>)}</select></label>}
         <button className="button button-secondary" type="button" disabled={!plan || !highlights.some((highlight) => highlight.selected) || busy} onClick={() => void createReel()}><Film size={15} /> Create Highlight Reel</button>
         <dl><div><dt>Candidates</dt><dd>{highlights.length}</dd></div><div><dt>Selected</dt><dd>{highlights.filter((item) => item.selected).length}</dd></div><div><dt>Topics covered</dt><dd>{new Set(highlights.filter((item) => item.selected).map((item) => item.topicId).filter(Boolean)).size}</dd></div></dl>
         {error && <div className="inline-error" role="alert">{error}</div>}
@@ -77,7 +86,7 @@ export function HighlightsPanel({ closeWorkspace }: HighlightsPanelProps): React
         {!highlights.length && <div className="transcript-empty"><Film size={30} /><strong>No highlights discovered</strong><span>Analyze semantics and create an Edit Plan, then review explainable candidate moments here.</span></div>}
         {highlights.map((candidate) => <article className={`highlight-card ${candidate.selected ? 'highlight-card-selected' : ''} ${candidate.excluded ? 'highlight-card-excluded' : ''}`} key={candidate.id}>
           <div className="highlight-thumbnail">{candidate.thumbnailUrl ? <img src={candidate.thumbnailUrl} alt="" /> : <Film size={28} />}<button type="button" title="Preview source" onClick={() => window.dispatchEvent(new CustomEvent('autocut-seek-source', { detail: { clipId: candidate.sourceClipId, time: candidate.start } }))}><Play size={16} fill="currentColor" /></button></div>
-          <div className="highlight-card-copy"><header><label className="control-check"><input type="checkbox" checked={candidate.selected} disabled={candidate.excluded} onChange={(event) => updateHighlight(candidate.id, { selected: event.target.checked })} /><span>{candidate.filename}</span></label><strong>{candidate.duration.toFixed(1)}s</strong></header><p>{candidate.transcript}</p><div className="highlight-score"><span>Smart {percent(candidate.scores.total)}</span><span>Semantic {percent(candidate.scores.semantic)}</span><span>Novelty {percent(candidate.scores.novelty)}</span></div><div className="reason-tags">{candidate.reasons.map((reason) => <span key={reason}><Check size={11} /> {reason}</span>)}</div><footer><span>{candidate.topicId ? topics.findIndex((topic) => topic.id === candidate.topicId) + 1 : 'No'} topic · {candidate.personPresent ? 'Person present' : 'No person detected'}</span><div><button type="button" title={candidate.locked ? 'Unlock highlight' : 'Lock highlight'} onClick={() => updateHighlight(candidate.id, { locked: !candidate.locked })}>{candidate.locked ? <Lock size={14} /> : <Unlock size={14} />}</button><button type="button" disabled={!candidate.alternativeIds.length} onClick={() => alternative(candidate)}><RefreshCw size={13} /> Alternative</button></div></footer></div>
+          <div className="highlight-card-copy"><header><label className="control-check"><input type="checkbox" checked={candidate.selected} disabled={candidate.excluded} onChange={(event) => updateHighlight(candidate.id, { selected: event.target.checked })} /><span>{candidate.filename}</span></label><strong>{candidate.duration.toFixed(1)}s</strong></header><p>{candidate.transcript}</p><div className="highlight-score"><span>Smart {percent(candidate.scores.total)}</span><span>Semantic {percent(candidate.scores.semantic)}</span><span>Novelty {percent(candidate.scores.novelty)}</span></div><div className="reason-tags">{candidate.reasons.map((reason) => <span key={reason}><Check size={11} /> {reason}</span>)}</div><footer><span>{candidate.speakerId ? `${labels.find((label) => label.speakerId === candidate.speakerId)?.displayName ?? candidate.speakerId} · ` : ''}{candidate.topicId ? topics.findIndex((topic) => topic.id === candidate.topicId) + 1 : 'No'} topic · {candidate.personPresent ? 'Person present' : 'No person detected'}</span><div><button type="button" title={candidate.locked ? 'Unlock highlight' : 'Lock highlight'} onClick={() => updateHighlight(candidate.id, { locked: !candidate.locked })}>{candidate.locked ? <Lock size={14} /> : <Unlock size={14} />}</button><button type="button" disabled={!candidate.alternativeIds.length} onClick={() => alternative(candidate)}><RefreshCw size={13} /> Alternative</button></div></footer></div>
         </article>)}
       </section>
     </div>

@@ -12,15 +12,13 @@ import type {
 } from '@shared/types'
 import { detectFfmpeg } from '../ffmpeg/binaries'
 import { applicationStoragePaths } from '../filesystem/application-storage'
+import { analysisScheduler } from '../semantic/analysis-scheduler'
 import { prepareTranscriptionAudio } from './audio-preparation'
 import { modelName } from './model-manager'
 import type { TranscriptionProvider } from './provider'
 import { readTranscriptCache, transcriptCacheKey, writeTranscriptCache } from './transcript-cache'
 import { saveTranscript } from './transcript-repository'
 import { WhisperCppProvider } from './whisper-cpp-provider'
-
-const controllers = new Map<string, AbortController>()
-let queue: Promise<void> = Promise.resolve()
 
 function emptyTranscript(request: TranscriptionRequest, source: TranscriptionSource): Transcript {
   const now = new Date().toISOString()
@@ -51,10 +49,9 @@ function combineTranscripts(parts: Transcript[], request: TranscriptionRequest, 
 async function runJob(
   request: TranscriptionRequest,
   onProgress: (progress: TranscriptionProgress) => void,
-  provider: TranscriptionProvider
+  provider: TranscriptionProvider,
+  signal: AbortSignal
 ): Promise<TranscriptionResult> {
-  const controller = new AbortController()
-  controllers.set(request.jobId, controller)
   const startedAt = Date.now()
   const status = await detectFfmpeg()
   if (!status.ffmpeg.path) throw new Error('FFmpeg is required to prepare transcription audio.')
@@ -72,11 +69,11 @@ async function runJob(
   try {
     report('Queued', 0, 0)
     for (let sourceIndex = 0; sourceIndex < request.sources.length; sourceIndex += 1) {
-      if (controller.signal.aborted) throw new Error('Transcription cancelled.')
+      if (signal.aborted) throw new Error('Transcription cancelled.')
       const source = request.sources[sourceIndex]
       const base = sourceIndex / Math.max(1, request.sources.length) * 100
       const span = 100 / Math.max(1, request.sources.length)
-      const key = await transcriptCacheKey(source, request.settings, provider.version)
+      const key = await transcriptCacheKey(source, request.settings, provider.version, request.vocabulary)
       const cached = await readTranscriptCache(key)
       let transcript: Transcript
       if (cached) {
@@ -92,13 +89,13 @@ async function runJob(
           report('Preparing audio', sourceIndex, base + span * (0.05 + rangeIndex / ranges.length * 0.1))
           const audioPath = await prepareTranscriptionAudio(
             status.ffmpeg.path, source.path, join(workDirectory, source.clipId), rangeIndex,
-            controller.signal, ranges[rangeIndex]
+            signal, ranges[rangeIndex]
           )
           report('Loading transcription model', sourceIndex, base + span * 0.18)
           parts.push(await provider.transcribe({
             projectId: request.projectId, sourceClipId: source.clipId, sourcePath: source.path,
             sourceDuration: source.duration, audioPath, timestampOffset: ranges[rangeIndex].start,
-            settings: request.settings, signal: controller.signal,
+            settings: request.settings, vocabulary: request.vocabulary ?? [], signal,
             onProgress: (progress) => report('Transcribing', sourceIndex, base + span * (0.2 + progress / 100 * 0.65))
           }))
         }
@@ -113,10 +110,9 @@ async function runJob(
     report('Complete', Math.max(0, request.sources.length - 1), 100)
     return { transcripts, references, cachedCount, warnings }
   } catch (error) {
-    if (controller.signal.aborted) throw new Error('Transcription cancelled.')
+    if (signal.aborted) throw new Error('Transcription cancelled.')
     throw error
   } finally {
-    controllers.delete(request.jobId)
     await rm(workDirectory, { recursive: true, force: true })
   }
 }
@@ -127,20 +123,9 @@ export function transcribeProject(
   provider: TranscriptionProvider = new WhisperCppProvider()
 ): Promise<TranscriptionResult> {
   if (!request.sources.length) return Promise.reject(new Error('Choose at least one clip to transcribe.'))
-  if (controllers.has(request.jobId)) return Promise.reject(new Error('This transcription job already exists.'))
-  let resolveResult!: (result: TranscriptionResult) => void
-  let rejectResult!: (reason: unknown) => void
-  const result = new Promise<TranscriptionResult>((resolve, reject) => { resolveResult = resolve; rejectResult = reject })
-  queue = queue.catch(() => undefined).then(async () => {
-    try { resolveResult(await runJob(request, onProgress, provider)) }
-    catch (error) { rejectResult(error) }
-  })
-  return result
+  return analysisScheduler.schedule(`transcription:${request.jobId}`, 'normal', (signal) => runJob(request, onProgress, provider, signal))
 }
 
 export function cancelTranscription(jobId: string): boolean {
-  const controller = controllers.get(jobId)
-  if (!controller) return false
-  controller.abort()
-  return true
+  return analysisScheduler.cancel(`transcription:${jobId}`)
 }

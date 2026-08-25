@@ -134,7 +134,7 @@ describe('Phase 7 transcription and captions', () => {
     expect(() => removeTranscriptRange(constrained, '/clips/a.mp4', constrained.segments[0].start, constrained.segments[0].end)).toThrow(/Use Every Clip/)
   })
 
-  it('uses a hard concat when a transcript edit creates a zero-transition split', () => {
+  it('uses a one-frame hard cut when a transcript split precedes a transition', () => {
     const current = plan()
     current.segments = [
       { ...current.segments[0], id: 'left', transitionToNext: null },
@@ -142,7 +142,8 @@ describe('Phase 7 transcription and captions', () => {
       { ...current.segments[0], id: 'next', transitionToNext: null }
     ]
     const graph = transitionFilters(current).filters.join(';')
-    expect(graph).toContain('concat=n=2:v=1:a=0')
+    expect(graph).toContain("xfade=transition=custom:duration=0.033333")
+    expect(graph).toContain("expr='B'")
     expect(graph).not.toContain('duration=0.000')
   })
 })
