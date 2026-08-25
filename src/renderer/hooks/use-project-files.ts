@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { LoadedProject, ProjectFile, RecentProject } from '@shared/types'
+import type { ProjectFile, RecentProject } from '@shared/types'
 import { validateProjectSettings } from '@shared/utils/project-validation'
 import { useAppStore } from '../stores/app-store'
 import { currentProjectFile } from '../stores/project-file'
@@ -56,7 +56,7 @@ export function useProjectFiles(): ProjectFileActions {
   }, [refreshRecent])
 
   const openLoadedProject = useCallback(
-    async (loaded: LoadedProject): Promise<void> => {
+    async (loaded: { project: ProjectFile; filePath: string | null }): Promise<void> => {
       setImporting(true)
       try {
         const imported = loaded.project.sourcePaths.length
@@ -83,7 +83,9 @@ export function useProjectFiles(): ProjectFileActions {
    */
   const openRecoveredProject = useCallback(
     async (project: ProjectFile, filePath: string | null): Promise<void> => {
-      await openLoadedProject({ project, filePath: filePath ?? '' })
+      // `null` must survive: an empty string is not an absolute path, and the save
+      // channels would reject it instead of offering the user a destination.
+      await openLoadedProject({ project, filePath })
       markDirtyAfterRecovery()
       setMessage(`Recovered ${project.settings.name}`)
     },

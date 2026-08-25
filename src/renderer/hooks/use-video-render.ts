@@ -3,6 +3,7 @@ import { createRenderFingerprint } from '@shared/utils/render-fingerprint'
 import { toRenderSettings } from '@shared/utils/project-settings'
 import { validateProjectSettings } from '@shared/utils/project-validation'
 import { useAppStore } from '../stores/app-store'
+import { useAutoSnapshot } from './use-auto-snapshot'
 
 function renderErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -15,6 +16,7 @@ export function useVideoRender(): {
   approveAndExport: () => Promise<void>
   cancel: () => Promise<void>
 } {
+  const takeSnapshot = useAutoSnapshot()
   const clips = useAppStore((state) => state.clips)
   const projectId = useAppStore((state) => state.projectId)
   const projectSettings = useAppStore((state) => state.projectSettings)
@@ -46,6 +48,9 @@ export function useVideoRender(): {
       failRender(blockingIssue.message)
       return
     }
+    // Regenerating discards manual trims and segment choices. Taken only once the
+    // operation is definitely going ahead, so a rejected request leaves no snapshot.
+    if (regenerate && editPlan) await takeSnapshot('before-replan')
     const generation = editPlan ? editPlan.generation + (regenerate ? 1 : 0) : previewGeneration
     const renderId = crypto.randomUUID()
     beginRender(renderId, 'analysis', generation)
@@ -66,7 +71,7 @@ export function useVideoRender(): {
       if (message.toLowerCase().includes('cancel')) markRenderCancelled()
       else failRender(message)
     }
-  }, [activeRenderId, beginRender, clips, editPlan, failRender, markRenderCancelled, previewGeneration, projectId, projectSettings, semanticHints, setEditPlan, showDurationIssue, topics])
+  }, [activeRenderId, beginRender, clips, editPlan, failRender, markRenderCancelled, previewGeneration, projectId, projectSettings, semanticHints, setEditPlan, showDurationIssue, takeSnapshot, topics])
 
   const generatePreview = useCallback(async (regenerate = false) => {
     if (clips.length === 0 || activeRenderId || !editPlan || editPlanOutdated) {

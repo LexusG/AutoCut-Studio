@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -112,6 +112,44 @@ describe('recovery journal', () => {
     await writeRecoveryJournal(project('recover-6'), saved, true)
     expect(await readFile(saved, 'utf8')).toBe('KNOWN GOOD CONTENT')
     expect((await stat(saved)).mtimeMs).toBe(before.mtimeMs)
+  })
+
+  it('points the journal at a body that is always fully written', async () => {
+    const first = project('recover-atomic')
+    await writeRecoveryJournal(first, null, true)
+
+    const second = { ...first, projectRevision: 7, settings: { ...first.settings, name: 'Newer' } }
+    await writeRecoveryJournal(second, null, true)
+
+    // The body is written under a fresh name and the pointer replaced last, so a crash
+    // between the two writes can never pair new project state with a stale journal.
+    const recovered = await readRecoveredProject('recover-atomic')
+    expect(recovered.settings.name).toBe('Newer')
+    expect(recovered.projectRevision).toBe(7)
+
+    const directory = join(electronState.userData, 'storage', 'recovery', 'recover-atomic')
+    const bodies = (await readdir(directory)).filter((name) => name.startsWith('project-'))
+    // Superseded bodies are removed only once the pointer no longer references them.
+    expect(bodies).toHaveLength(1)
+  })
+
+  it('still reads a journal written in the pre-pointer layout', async () => {
+    const directory = join(electronState.userData, 'storage', 'recovery', 'legacy-project')
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, 'project.json'), serializeProjectFile(project('legacy-project', 'Legacy')), 'utf8')
+    await writeFile(
+      join(directory, 'journal.json'),
+      JSON.stringify({
+        projectId: 'legacy-project',
+        projectName: 'Legacy',
+        projectFilePath: null,
+        savedAt: new Date().toISOString(),
+        projectRevision: 2,
+        dirty: true
+      }),
+      'utf8'
+    )
+    expect((await readRecoveredProject('legacy-project')).settings.name).toBe('Legacy')
   })
 
   it('discards recovery data on request', async () => {

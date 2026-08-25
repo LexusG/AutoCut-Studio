@@ -15,14 +15,10 @@ export const MAX_AUTOMATIC_SNAPSHOTS = 10
 
 const REASON_LABELS: Record<SnapshotReason, string> = {
   manual: 'Manual snapshot',
-  'before-replace-media': 'Before replacing media',
-  'before-reset-settings': 'Before resetting project settings',
-  'before-bulk-transcript-removal': 'Before bulk transcript removal',
-  'before-filler-removal': 'Before filler removal',
-  'before-replan': 'Before automatic replan',
-  'before-restore': 'Before restoring an older version',
-  'before-relink': 'Before relinking media',
-  'before-migration': 'Before schema migration'
+  'before-bulk-transcript-removal': 'Before bulk transcript replace',
+  'before-preset-change': 'Before changing platform preset',
+  'before-replan': 'Before regenerating the edit plan',
+  'before-restore': 'Before restoring an older version'
 }
 
 const safeId = (value: string): string => {

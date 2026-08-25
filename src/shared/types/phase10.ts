@@ -74,16 +74,16 @@ export interface ProxyRecord {
   error: string | null
 }
 
+/**
+ * Every member must correspond to an operation that actually creates a snapshot.
+ * New reasons are added alongside the code that emits them, never ahead of it.
+ */
 export type SnapshotReason =
   | 'manual'
-  | 'before-replace-media'
-  | 'before-reset-settings'
   | 'before-bulk-transcript-removal'
-  | 'before-filler-removal'
+  | 'before-preset-change'
   | 'before-replan'
   | 'before-restore'
-  | 'before-relink'
-  | 'before-migration'
 
 export interface ProjectSnapshotRef {
   id: string
@@ -124,6 +124,11 @@ export interface RecoveryJournalEntry {
   savedAt: string
   projectRevision: number
   dirty: boolean
+  /**
+   * The project body this journal points at. Bodies are written under a fresh name and
+   * the journal replaced last, so a journal never references a half-written body.
+   */
+  bodyFile: string
 }
 
 export interface RecoveryCandidate {

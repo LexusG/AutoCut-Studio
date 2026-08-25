@@ -51,7 +51,9 @@ export function RecoveryDialog(): React.JSX.Element | null {
     try {
       const project = await window.autoCut.recoverProject(candidate.entry.projectId)
       await openRecoveredProject(project, candidate.entry.projectFilePath)
-      await window.autoCut.discardRecovery(candidate.entry.projectId)
+      // The journal stays until the recovered work is actually written somewhere.
+      // Autosave clears it by re-journalling with dirty:false after a successful save;
+      // discarding here would destroy the only copy if the user never saves.
       finish()
     } catch (recoveryError) {
       setError(recoveryError instanceof Error ? recoveryError.message : 'The recovered project could not be opened.')

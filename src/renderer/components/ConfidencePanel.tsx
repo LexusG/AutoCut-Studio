@@ -2,6 +2,7 @@ import { Check, Play, RotateCcw, Search, SkipForward, SpellCheck, UserRoundSearc
 import { useMemo, useState } from 'react'
 import type { Transcript } from '@shared/types'
 import { useAppStore } from '../stores/app-store'
+import { useAutoSnapshot } from '../hooks/use-auto-snapshot'
 
 function confidence(word: Transcript['words'][number]): 'Low' | 'Medium' | 'Unknown' {
   if (word.confidence == null) return 'Unknown'
@@ -31,6 +32,7 @@ export function ConfidencePanel(): React.JSX.Element {
   const vocabulary = useAppStore((state) => state.userVocabulary)
   const correctWord = useAppStore((state) => state.correctTranscriptWord)
   const replaceTranscript = useAppStore((state) => state.replaceTranscript)
+  const takeSnapshot = useAutoSnapshot()
   const setReview = useAppStore((state) => state.setConfidenceReview)
   const setVocabulary = useAppStore((state) => state.setUserVocabulary)
   const [index, setIndex] = useState(0)
@@ -62,6 +64,8 @@ export function ConfidencePanel(): React.JSX.Element {
     setCorrection(''); setIndex((value) => Math.min(value, Math.max(0, queue.length - 2)))
   }
   const replaceAll = (): void => {
+    // Rewrites every matching word across all project transcripts.
+    void takeSnapshot('before-bulk-transcript-removal')
     if (!find.trim() || !replacement.trim() || !replaceCount) return
     setUndo(transcripts.map((transcript) => structuredClone(transcript)))
     for (const transcript of transcripts) {

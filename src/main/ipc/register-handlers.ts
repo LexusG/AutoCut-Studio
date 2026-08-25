@@ -521,7 +521,11 @@ export function registerIpcHandlers(): void {
         if (result.canceled || !result.filePath) return null
         filePath = result.filePath
       }
-      return saveProjectFile(filePath, project)
+      const saved = await saveProjectFile(filePath, project)
+      // Settle the recovery journal against the file the user just wrote, so a later
+      // start does not offer to recover work that is already on disk.
+      await writeRecoveryJournal(saved.project, saved.filePath, false).catch(() => undefined)
+      return saved
     }
   )
 
@@ -576,7 +580,9 @@ export function registerIpcHandlers(): void {
     // A copy gets its own identity and its own managed storage, so editing either
     // project can never disturb the other's transcripts, previews, or caches.
     const cloned = await cloneProjectIdentity(project)
-    return saveProjectFile(result.filePath, cloned)
+    const saved = await saveProjectFile(result.filePath, cloned)
+    await writeRecoveryJournal(saved.project, saved.filePath, false).catch(() => undefined)
+    return saved
   })
 
   ipcMain.handle(IPC_CHANNELS.recoveryState, () => inspectRecoveryState())

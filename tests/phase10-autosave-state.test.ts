@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useAppStore } from '../src/renderer/stores/app-store'
+import { currentProjectFile } from '../src/renderer/stores/project-file'
 
 const state = () => useAppStore.getState()
 
@@ -49,6 +50,42 @@ describe('autosave dirty tracking', () => {
     expect(state().projectDirty).toBe(false)
     expect(state().lastSavedAt).toBe('2026-08-25T00:00:00.000Z')
     expect(state().autosaveError).toBeNull()
+  })
+
+  it('does not report Saved when an edit landed while the save was in flight', () => {
+    state().setProjectName('First')
+    const inFlightRevision = state().projectRevision
+
+    // The user keeps editing while the write is running.
+    state().setProjectName('Second')
+    expect(state().projectRevision).toBeGreaterThan(inFlightRevision)
+
+    // The save completes, but it only ever covered the earlier revision.
+    state().setAutosaveStatus('saved', { savedAt: '2026-08-25T00:00:00.000Z', savedRevision: inFlightRevision })
+
+    // Reporting "Saved" here would strand the newest edit in memory with nothing
+    // scheduled to persist it.
+    expect(state().projectDirty).toBe(true)
+    expect(state().autosaveStatus).toBe('unsaved')
+  })
+
+  it('reports Saved when the save covered the newest revision', () => {
+    state().setProjectName('Only edit')
+    state().setAutosaveStatus('saved', {
+      savedAt: '2026-08-25T00:00:00.000Z',
+      savedRevision: state().projectRevision
+    })
+    expect(state().projectDirty).toBe(false)
+    expect(state().autosaveStatus).toBe('saved')
+  })
+
+  it('accepts a recovered project that has no file path yet', () => {
+    const project = { ...currentProjectFile(), projectRevision: 4 }
+    state().loadProject(project, null, [], [])
+    // An empty string is not an absolute path and would be rejected by the save
+    // channels instead of prompting the user for a destination.
+    expect(state().projectFilePath).toBeNull()
+    expect(state().projectRevision).toBe(4)
   })
 
   it('resets autosave state when a new project starts', () => {

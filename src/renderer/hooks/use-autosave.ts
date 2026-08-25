@@ -42,8 +42,10 @@ export function useAutosave(): void {
       if (!state.projectDirty) return
 
       inFlight.current = true
-      const store = useAppStore.getState()
-      store.setAutosaveStatus('saving')
+      // Capture what this write covers. Anything edited after this point is not saved
+      // by it, however the write turns out.
+      const savedRevision = state.projectRevision
+      useAppStore.getState().setAutosaveStatus('saving')
       try {
         const result = await window.autoCut.autosaveProject(currentProjectFile(), state.projectFilePath)
         if (result.state === 'failed') {
@@ -51,7 +53,14 @@ export function useAutosave(): void {
           useAppStore.getState().setAutosaveStatus('failed', { error: result.message })
           timer.current = setTimeout(() => void run(), RETRY_DELAY_MS)
         } else if (result.state === 'saved') {
-          useAppStore.getState().setAutosaveStatus('saved', { error: null, savedAt: result.savedAt })
+          useAppStore.getState().setAutosaveStatus('saved', {
+            error: null,
+            savedAt: result.savedAt,
+            savedRevision
+          })
+          // Edits landed while the write was in flight; persist them promptly rather
+          // than waiting for the user's next keystroke to restart the debounce.
+          if (useAppStore.getState().projectRevision !== savedRevision) pending.current = true
         } else {
           // Journalled: recoverable, but the user has not chosen a destination yet.
           useAppStore.getState().setAutosaveStatus('unsaved', { error: null })

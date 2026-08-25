@@ -145,7 +145,7 @@ interface AppState {
   showEditPlan: () => void
   hideEditPlan: () => void
   startProject: () => void
-  loadProject: (project: ProjectFile, filePath: string, clips: MediaClip[], failures: ImportFailure[]) => void
+  loadProject: (project: ProjectFile, filePath: string | null, clips: MediaClip[], failures: ImportFailure[]) => void
   returnHome: () => void
   backToEdit: () => void
   showReview: () => void
@@ -170,7 +170,10 @@ interface AppState {
   setPreviewQuality: (quality: PreviewQuality) => void
   markProjectSaved: (saved: SavedProject) => void
   markMeaningfulChange: () => void
-  setAutosaveStatus: (status: AutosaveStatus, detail?: { error?: string | null; savedAt?: string | null }) => void
+  setAutosaveStatus: (
+    status: AutosaveStatus,
+    detail?: { error?: string | null; savedAt?: string | null; savedRevision?: number }
+  ) => void
   setAutosaveEnabled: (enabled: boolean) => void
   setProjectSnapshots: (snapshots: ProjectSnapshotRef[]) => void
   setProjectReadOnly: (readOnly: boolean) => void
@@ -692,12 +695,20 @@ export const useAppStore = create<AppState>((rawSet) => {
     projectDirty: true,
     autosaveStatus: state.autosaveStatus === 'failed' ? 'failed' : ('unsaved' as AutosaveStatus)
   })),
-  setAutosaveStatus: (autosaveStatus, detail) => set((state) => ({
-    autosaveStatus,
-    autosaveError: detail?.error === undefined ? (autosaveStatus === 'failed' ? state.autosaveError : null) : detail.error,
-    lastSavedAt: detail?.savedAt === undefined ? state.lastSavedAt : detail.savedAt,
-    ...(autosaveStatus === 'saved' ? { projectDirty: false } : {})
-  })),
+  setAutosaveStatus: (autosaveStatus, detail) => set((state) => {
+    // A save reports the revision it actually wrote. If the user edited while that
+    // write was in flight, the project is still dirty and must not be shown as saved,
+    // or the newest edit would live only in memory with nothing scheduled to persist it.
+    const savedEverything =
+      autosaveStatus === 'saved' &&
+      (detail?.savedRevision === undefined || detail.savedRevision === state.projectRevision)
+    return {
+      autosaveStatus: autosaveStatus === 'saved' && !savedEverything ? ('unsaved' as AutosaveStatus) : autosaveStatus,
+      autosaveError: detail?.error === undefined ? (autosaveStatus === 'failed' ? state.autosaveError : null) : detail.error,
+      lastSavedAt: detail?.savedAt === undefined ? state.lastSavedAt : detail.savedAt,
+      ...(savedEverything ? { projectDirty: false } : {})
+    }
+  }),
   setAutosaveEnabled: (autosaveEnabled) => set({ autosaveEnabled }),
   setProjectSnapshots: (projectSnapshots) => set({ projectSnapshots }),
   setProjectReadOnly: (projectReadOnly) => set({ projectReadOnly }),

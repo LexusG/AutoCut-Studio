@@ -19,7 +19,7 @@ import {
   renameSnapshot,
   summarizeSnapshotDiff
 } from '../src/main/services/projects/project-snapshot-manager'
-import type { ProjectFile } from '../src/shared/types'
+import type { ProjectFile, SnapshotReason } from '../src/shared/types'
 import { createDefaultProjectSettings, createProjectFile } from '../src/shared/utils/project-settings'
 
 let root = ''
@@ -58,9 +58,9 @@ describe('project snapshots', () => {
   })
 
   it('names an automatic snapshot after the operation that triggered it', async () => {
-    const ref = await createSnapshot(project(), { reason: 'before-replace-media' })
+    const ref = await createSnapshot(project(), { reason: 'before-preset-change' })
     expect(ref.automatic).toBe(true)
-    expect(ref.name).toBe('Before replacing media')
+    expect(ref.name).toBe('Before changing platform preset')
   })
 
   it('does not duplicate source media into the snapshot body', async () => {
@@ -123,6 +123,25 @@ describe('project snapshots', () => {
   it('reports no differences between a project and itself', async () => {
     const source = project('snapshot-same')
     expect(summarizeSnapshotDiff(source, source)).toEqual([{ field: 'none', summary: 'No tracked differences.' }])
+  })
+
+  it('gives every declared snapshot reason a distinct label', async () => {
+    const reasons: SnapshotReason[] = [
+      'manual',
+      'before-bulk-transcript-removal',
+      'before-preset-change',
+      'before-replan',
+      'before-restore'
+    ]
+    const source = project('snapshot-reasons')
+    const names = new Set<string>()
+    for (const reason of reasons) {
+      const ref = await createSnapshot(source, { reason })
+      expect(ref.name.trim()).not.toBe('')
+      names.add(ref.name)
+      expect(ref.automatic).toBe(reason !== 'manual')
+    }
+    expect(names.size).toBe(reasons.length)
   })
 
   it('returns an empty list for a project with no snapshots', async () => {

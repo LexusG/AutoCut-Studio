@@ -6,7 +6,10 @@ import { writeFileAtomic } from '../filesystem/atomic-write'
 import { beginSession, recoveryRoot } from './session-marker'
 
 const JOURNAL_FILE = 'journal.json'
-const PROJECT_FILE = 'project.json'
+/** Pre-fix layout, still read so an in-flight upgrade does not lose a journal. */
+const LEGACY_PROJECT_FILE = 'project.json'
+
+const bodyFileName = (revision: number, stamp: number): string => `project-${revision}-${stamp}.json`
 
 const safeId = (value: string): string => {
   if (!/^[a-zA-Z0-9_-]+$/.test(value)) throw new Error('The project identifier is invalid.')
@@ -36,16 +39,30 @@ export async function writeRecoveryJournal(
   dirty: boolean
 ): Promise<void> {
   const directory = journalDirectory(project.id)
+  const previous = await readJournalEntry(project.id).catch(() => null)
+
+  // The body is written under a fresh name and the journal that points at it is
+  // replaced last. Overwriting one shared body first would let a crash in between pair
+  // the newest project state with a stale journal, which candidate discovery would
+  // then skip — losing exactly the work this journal exists to protect.
+  const bodyFile = bodyFileName(project.projectRevision, Date.now())
+  await writeFileAtomic(join(directory, bodyFile), serializeProjectFile(project))
+
   const entry: RecoveryJournalEntry = {
     projectId: project.id,
     projectName: project.settings.name,
     projectFilePath,
     savedAt: new Date().toISOString(),
     projectRevision: project.projectRevision,
-    dirty
+    dirty,
+    bodyFile
   }
-  await writeFileAtomic(join(directory, PROJECT_FILE), serializeProjectFile(project))
   await writeFileAtomic(join(directory, JOURNAL_FILE), `${JSON.stringify(entry, null, 2)}\n`)
+
+  // Only once the pointer is live is the superseded body disposable.
+  if (previous?.bodyFile && previous.bodyFile !== bodyFile) {
+    await rm(join(directory, previous.bodyFile), { force: true }).catch(() => undefined)
+  }
 }
 
 export async function discardRecovery(projectId: string): Promise<void> {
@@ -64,7 +81,8 @@ async function readJournalEntry(projectId: string): Promise<RecoveryJournalEntry
       projectFilePath: typeof parsed.projectFilePath === 'string' ? parsed.projectFilePath : null,
       savedAt: parsed.savedAt,
       projectRevision: Number.isInteger(parsed.projectRevision) ? (parsed.projectRevision as number) : 0,
-      dirty: parsed.dirty === true
+      dirty: parsed.dirty === true,
+      bodyFile: typeof parsed.bodyFile === 'string' ? parsed.bodyFile : LEGACY_PROJECT_FILE
     }
   } catch {
     return null
@@ -73,7 +91,9 @@ async function readJournalEntry(projectId: string): Promise<RecoveryJournalEntry
 
 /** The project as it stood when the journal was last written. */
 export async function readRecoveredProject(projectId: string): Promise<ProjectFile> {
-  const contents = await readFile(join(journalDirectory(projectId), PROJECT_FILE), 'utf8')
+  const entry = await readJournalEntry(projectId)
+  if (!entry) throw new Error('There is no recovery data for this project.')
+  const contents = await readFile(join(journalDirectory(projectId), entry.bodyFile), 'utf8')
   return parseProjectFile(contents)
 }
 

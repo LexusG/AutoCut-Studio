@@ -103,7 +103,9 @@ export function ProjectHistoryPanel(): React.JSX.Element {
         {error && <div className="inline-error" role="alert">{error}</div>}
         {snapshots.length === 0 ? (
           <small className="storage-location">
-            No snapshots yet. One is taken automatically before large or destructive changes.
+            No snapshots yet. One is taken automatically before regenerating the edit plan,
+            changing platform preset, replacing text across transcripts, or restoring an
+            older version.
           </small>
         ) : (
           <ul className="snapshot-list">
