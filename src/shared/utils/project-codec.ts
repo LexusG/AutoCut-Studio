@@ -1,4 +1,14 @@
-import type { AudioTrack, PreviewVersion, ProjectFile, ProjectSettings, RenderPlan, SoundtrackTrack } from '../types'
+import type {
+  AudioTrack,
+  MigrationOutcome,
+  PreviewVersion,
+  ProjectFile,
+  ProjectSettings,
+  RenderPlan,
+  SoundtrackTrack
+} from '../types'
+import { migrateProjectRecord, PROJECT_SCHEMA_VERSION } from './migrations'
+import type { ProjectRecord } from './migrations'
 import { createDefaultProjectSettings } from './project-settings'
 
 function migrateLegacyTrack(track: AudioTrack, settings: ProjectSettings): SoundtrackTrack {
@@ -284,63 +294,114 @@ export function serializeProjectFile(project: ProjectFile): string {
   return `${JSON.stringify(serializable, null, 2)}\n`
 }
 
-export function parseProjectFile(contents: string): ProjectFile {
+export interface ParsedProjectDocument {
+  project: ProjectFile
+  migration: MigrationOutcome
+}
+
+function hydrateSourceMedia(value: unknown): ProjectFile['sourceMedia'] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const raw = entry as Record<string, unknown>
+    if (typeof raw.path !== 'string' || !raw.path) return []
+    return [{
+      path: raw.path,
+      clipId: typeof raw.clipId === 'string' ? raw.clipId : null,
+      relativePath: typeof raw.relativePath === 'string' ? raw.relativePath : null,
+      fingerprint: raw.fingerprint && typeof raw.fingerprint === 'object'
+        ? raw.fingerprint as ProjectFile['sourceMedia'][number]['fingerprint']
+        : null
+    }]
+  })
+}
+
+/**
+ * Read a project file, upgrading it through the migration registry on the way.
+ *
+ * The returned `migration` describes what was applied, so callers can take a backup
+ * of the original file before writing the upgraded form back over it.
+ */
+export function parseProjectDocument(contents: string): ParsedProjectDocument {
   let parsed: unknown
   try {
     parsed = JSON.parse(contents) as unknown
   } catch {
     throw new Error('The selected file is not valid AutoCut Studio project JSON.')
   }
-  if (!parsed || typeof parsed !== 'object') throw new Error('The project file is invalid.')
-  const raw = parsed as Record<string, unknown>
-  if (raw.version !== 2 && raw.version !== 3 && raw.version !== 4 && raw.version !== 5 && raw.version !== 6 && raw.version !== 7 && raw.version !== 8) {
-    throw new Error('This project version is not supported.')
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('The project file is invalid.')
   }
+
+  const { record, outcome } = migrateProjectRecord(parsed as ProjectRecord)
+  const raw = record
+
   if (typeof raw.id !== 'string' || !raw.id) throw new Error('The project identifier is missing.')
   if (!Array.isArray(raw.sourcePaths) || !raw.sourcePaths.every((path) => typeof path === 'string')) {
     throw new Error('The project source list is invalid.')
   }
-  const previewHistory = raw.version >= 3 && Array.isArray(raw.previewHistory)
+
+  const projectId = raw.id
+  const previewHistory = Array.isArray(raw.previewHistory)
     ? raw.previewHistory
-        .map((value) => hydratePreviewVersion(value, raw.id as string))
+        .map((value) => hydratePreviewVersion(value, projectId))
         .filter((item): item is PreviewVersion => item !== null)
     : []
-  return {
-    version: 8,
-    id: raw.id,
+
+  const sourcePaths = raw.sourcePaths as string[]
+  const sourceMedia = hydrateSourceMedia(raw.sourceMedia)
+
+  const project: ProjectFile = {
+    version: PROJECT_SCHEMA_VERSION as ProjectFile['version'],
+    id: projectId,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString(),
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
-    settings: hydrateSettings(raw.settings, raw.version < 5),
-    sourcePaths: raw.sourcePaths,
+    // The migration chain has already pinned pre-v5 editing defaults onto the record,
+    // so hydration no longer needs to know how old the project was.
+    settings: hydrateSettings(raw.settings),
+    sourcePaths,
     previewHistory,
-    editPlan: raw.version >= 5 ? hydrateRenderPlan(raw.editPlan) : null,
-    transcriptReferences: raw.version >= 6 && Array.isArray(raw.transcriptReferences)
-      ? raw.transcriptReferences as ProjectFile['transcriptReferences'] : [],
-    transcriptCorrections: raw.version >= 6 && Array.isArray(raw.transcriptCorrections)
-      ? raw.transcriptCorrections as ProjectFile['transcriptCorrections'] : [],
-    textEdits: raw.version >= 6 && Array.isArray(raw.textEdits)
-      ? raw.textEdits as ProjectFile['textEdits'] : [],
-    transcriptEditRevision: raw.version >= 6 && Number.isInteger(raw.transcriptEditRevision)
-      ? raw.transcriptEditRevision as number : 0,
-    semanticAnalysis: raw.version >= 7 && raw.semanticAnalysis && typeof raw.semanticAnalysis === 'object'
+    editPlan: hydrateRenderPlan(raw.editPlan),
+    transcriptReferences: (raw.transcriptReferences ?? []) as ProjectFile['transcriptReferences'],
+    transcriptCorrections: (raw.transcriptCorrections ?? []) as ProjectFile['transcriptCorrections'],
+    textEdits: (raw.textEdits ?? []) as ProjectFile['textEdits'],
+    transcriptEditRevision: Number.isInteger(raw.transcriptEditRevision) ? raw.transcriptEditRevision as number : 0,
+    semanticAnalysis: raw.semanticAnalysis && typeof raw.semanticAnalysis === 'object'
       ? raw.semanticAnalysis as ProjectFile['semanticAnalysis'] : null,
-    topics: raw.version >= 7 && Array.isArray(raw.topics) ? raw.topics as ProjectFile['topics'] : [],
-    semanticHints: raw.version >= 7 && Array.isArray(raw.semanticHints) ? raw.semanticHints as ProjectFile['semanticHints'] : [],
-    highlightCandidates: raw.version >= 7 && Array.isArray(raw.highlightCandidates) ? raw.highlightCandidates as ProjectFile['highlightCandidates'] : [],
-    outputVariants: raw.version >= 7 && Array.isArray(raw.outputVariants)
+    topics: (raw.topics ?? []) as ProjectFile['topics'],
+    semanticHints: (raw.semanticHints ?? []) as ProjectFile['semanticHints'],
+    highlightCandidates: (raw.highlightCandidates ?? []) as ProjectFile['highlightCandidates'],
+    outputVariants: Array.isArray(raw.outputVariants)
       ? (raw.outputVariants as ProjectFile['outputVariants']).map((variant) => ({
           ...variant,
           renderPlan: hydrateRenderPlan(variant.renderPlan),
           previewHistory: Array.isArray(variant.previewHistory)
-            ? variant.previewHistory.map((preview) => hydratePreviewVersion(preview, raw.id as string)).filter((preview): preview is PreviewVersion => preview !== null)
+            ? variant.previewHistory
+                .map((preview) => hydratePreviewVersion(preview, projectId))
+                .filter((preview): preview is PreviewVersion => preview !== null)
             : []
         }))
       : [],
-    diarizationReferences: raw.version >= 8 && Array.isArray(raw.diarizationReferences) ? raw.diarizationReferences as ProjectFile['diarizationReferences'] : [],
-    speakerLabels: raw.version >= 8 && Array.isArray(raw.speakerLabels) ? raw.speakerLabels as ProjectFile['speakerLabels'] : [],
-    confidenceReviews: raw.version >= 8 && Array.isArray(raw.confidenceReviews) ? raw.confidenceReviews as ProjectFile['confidenceReviews'] : [],
-    userVocabulary: raw.version >= 8 && Array.isArray(raw.userVocabulary) ? raw.userVocabulary.filter((item): item is string => typeof item === 'string') : [],
-    semanticCollections: raw.version >= 8 && Array.isArray(raw.semanticCollections) ? raw.semanticCollections as ProjectFile['semanticCollections'] : [],
-    projectCaptionTemplates: raw.version >= 8 && Array.isArray(raw.projectCaptionTemplates) ? raw.projectCaptionTemplates as ProjectFile['projectCaptionTemplates'] : []
+    diarizationReferences: (raw.diarizationReferences ?? []) as ProjectFile['diarizationReferences'],
+    speakerLabels: (raw.speakerLabels ?? []) as ProjectFile['speakerLabels'],
+    confidenceReviews: (raw.confidenceReviews ?? []) as ProjectFile['confidenceReviews'],
+    userVocabulary: Array.isArray(raw.userVocabulary)
+      ? raw.userVocabulary.filter((item): item is string => typeof item === 'string') : [],
+    semanticCollections: (raw.semanticCollections ?? []) as ProjectFile['semanticCollections'],
+    projectCaptionTemplates: (raw.projectCaptionTemplates ?? []) as ProjectFile['projectCaptionTemplates'],
+    // A project migrated from v8 has no fingerprints yet; fall back to the plain paths
+    // so the source list is never lost, and let the first open fill in the identities.
+    sourceMedia: sourceMedia.length > 0
+      ? sourceMedia
+      : sourcePaths.map((path) => ({ path, clipId: null, relativePath: null, fingerprint: null })),
+    proxyRecords: (raw.proxyRecords ?? []) as ProjectFile['proxyRecords'],
+    snapshotRefs: (raw.snapshotRefs ?? []) as ProjectFile['snapshotRefs'],
+    projectRevision: Number.isInteger(raw.projectRevision) ? raw.projectRevision as number : 0
   }
+
+  return { project, migration: outcome }
+}
+
+export function parseProjectFile(contents: string): ProjectFile {
+  return parseProjectDocument(contents).project
 }

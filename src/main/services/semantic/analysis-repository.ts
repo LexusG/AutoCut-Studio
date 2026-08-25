@@ -1,14 +1,14 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { SemanticAnalysisReference, SemanticProjectAnalysis } from '@shared/types'
 import { semanticProjectDirectory } from './embedding-cache'
+import { writeFileAtomic } from '../filesystem/atomic-write'
 
 const ANALYSIS_FILENAME = 'analysis.json'
 
 export async function saveSemanticAnalysis(analysis: SemanticProjectAnalysis): Promise<SemanticAnalysisReference> {
   const directory = semanticProjectDirectory(analysis.projectId)
-  await mkdir(directory, { recursive: true })
-  await writeFile(join(directory, ANALYSIS_FILENAME), `${JSON.stringify(analysis, null, 2)}\n`, 'utf8')
+  await writeFileAtomic(join(directory, ANALYSIS_FILENAME), `${JSON.stringify(analysis, null, 2)}\n`)
   return {
     projectId: analysis.projectId,
     relativePath: `projects/${analysis.projectId}/semantic/${ANALYSIS_FILENAME}`,

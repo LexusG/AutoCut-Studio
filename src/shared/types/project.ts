@@ -44,6 +44,7 @@ import type {
   SpeakerLabel,
   SpeakerProjectSettings
 } from './phase9'
+import type { ProjectSnapshotRef, ProxyRecord, SourceMediaRecord } from './phase10'
 
 export type PlatformId = 'instagram' | 'youtube' | 'linkedin' | 'custom'
 export type Orientation = 'landscape' | 'portrait' | 'square' | 'source'
@@ -191,7 +192,7 @@ export interface ProjectSettings {
 }
 
 export interface ProjectFile {
-  version: 8
+  version: 9
   id: string
   createdAt: string
   updatedAt: string
@@ -214,6 +215,17 @@ export interface ProjectFile {
   userVocabulary: string[]
   semanticCollections: SemanticCollection[]
   projectCaptionTemplates: CaptionTemplate[]
+  /**
+   * Authoritative source list from v9 onwards. `sourcePaths` is kept in step with it
+   * so existing readers keep working, but only these records carry the fingerprints
+   * that survive a file being moved.
+   */
+  sourceMedia: SourceMediaRecord[]
+  proxyRecords: ProxyRecord[]
+  /** Snapshot bodies live in sidecar files; only their descriptors are stored here. */
+  snapshotRefs: ProjectSnapshotRef[]
+  /** Bumped on every meaningful change; drives autosave and the recovery journal. */
+  projectRevision: number
 }
 
 export interface PreviewVersion {

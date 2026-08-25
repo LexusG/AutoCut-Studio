@@ -4,6 +4,7 @@ import { registerIpcHandlers } from './ipc/register-handlers'
 import { registerMediaProtocol } from './services/filesystem/media-access'
 import { registerAppAssetProtocol } from './services/filesystem/app-asset-access'
 import { initializeProcessingPreferences } from './services/runtime/processing-preferences'
+import { endSession } from './services/recovery/session-marker'
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -68,6 +69,12 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', () => {
+  // Recorded synchronously enough for a normal quit; a crash simply leaves the marker
+  // unclean, which is exactly the signal the recovery manager looks for on next start.
+  void endSession()
 })
 
 app.on('window-all-closed', () => {

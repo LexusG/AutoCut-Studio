@@ -1,4 +1,5 @@
 import { getPreset, PLATFORM_LABELS } from '../constants/presets'
+import { PROJECT_SCHEMA_VERSION } from './migrations/steps'
 import type {
   PlatformId,
   ProjectFile,
@@ -368,11 +369,14 @@ export function createProjectFile(
   },
   phase9: Pick<ProjectFile, 'diarizationReferences' | 'speakerLabels' | 'confidenceReviews' | 'userVocabulary' | 'semanticCollections' | 'projectCaptionTemplates'> = {
     diarizationReferences: [], speakerLabels: [], confidenceReviews: [], userVocabulary: [], semanticCollections: [], projectCaptionTemplates: []
+  },
+  phase10: Pick<ProjectFile, 'sourceMedia' | 'proxyRecords' | 'snapshotRefs' | 'projectRevision'> = {
+    sourceMedia: [], proxyRecords: [], snapshotRefs: [], projectRevision: 0
   }
 ): ProjectFile {
   const now = new Date().toISOString()
   return {
-    version: 8,
+    version: PROJECT_SCHEMA_VERSION as ProjectFile['version'],
     id: existing?.id ?? crypto.randomUUID(),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
@@ -394,7 +398,18 @@ export function createProjectFile(
     confidenceReviews: structuredClone(phase9.confidenceReviews),
     userVocabulary: structuredClone(phase9.userVocabulary),
     semanticCollections: structuredClone(phase9.semanticCollections),
-    projectCaptionTemplates: structuredClone(phase9.projectCaptionTemplates)
+    projectCaptionTemplates: structuredClone(phase9.projectCaptionTemplates),
+    // Keep the fingerprinted list in step with the plain paths the caller supplied, so
+    // the two never disagree about which sources the project references.
+    sourceMedia: sourcePaths.map((path) => {
+      const existing = phase10.sourceMedia.find((record) => record.path === path)
+      return existing
+        ? structuredClone(existing)
+        : { path, clipId: null, relativePath: null, fingerprint: null }
+    }),
+    proxyRecords: structuredClone(phase10.proxyRecords),
+    snapshotRefs: structuredClone(phase10.snapshotRefs),
+    projectRevision: phase10.projectRevision
   }
 }
 

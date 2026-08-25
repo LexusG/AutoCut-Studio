@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { StoreApi } from 'zustand'
 import { getPresetsForPlatform } from '@shared/constants/presets'
 import type {
   AudioTrack,
@@ -48,7 +49,11 @@ import type {
   SpeakerDiarizationResult,
   SpeakerLabel,
   SpeakerProjectSettings,
-  CaptionTemplate
+  CaptionTemplate,
+  AutosaveStatus,
+  ProjectSnapshotRef,
+  ProxyRecord,
+  SourceMediaRecord
 } from '@shared/types'
 import { updateOutputVariant as reviseOutputVariant } from '@shared/utils/output-variants'
 import {
@@ -72,6 +77,17 @@ interface AppState {
   projectCreatedAt: string
   projectFilePath: string | null
   projectDirty: boolean
+  /** Bumped by every meaningful change; the autosave controller watches this. */
+  projectRevision: number
+  autosaveStatus: AutosaveStatus
+  autosaveError: string | null
+  lastSavedAt: string | null
+  autosaveEnabled: boolean
+  projectSnapshots: ProjectSnapshotRef[]
+  projectReadOnly: boolean
+  /** Carried through a save round-trip so fingerprints survive; main keeps it in step. */
+  sourceMedia: SourceMediaRecord[]
+  proxyRecords: ProxyRecord[]
   clips: MediaClip[]
   selectedClipId: string | null
   ffmpegStatus: FfmpegStatus | null
@@ -129,7 +145,7 @@ interface AppState {
   showEditPlan: () => void
   hideEditPlan: () => void
   startProject: () => void
-  loadProject: (project: ProjectFile, filePath: string, clips: MediaClip[], failures: ImportFailure[]) => void
+  loadProject: (project: ProjectFile, filePath: string | null, clips: MediaClip[], failures: ImportFailure[]) => void
   returnHome: () => void
   backToEdit: () => void
   showReview: () => void
@@ -152,7 +168,15 @@ interface AppState {
   setBackgroundTrack: (track: AudioTrack | null) => void
   setOutputFilename: (filename: string) => void
   setPreviewQuality: (quality: PreviewQuality) => void
-  markProjectSaved: (saved: SavedProject) => void
+  markProjectSaved: (saved: SavedProject, savedRevision?: number) => void
+  markMeaningfulChange: () => void
+  setAutosaveStatus: (
+    status: AutosaveStatus,
+    detail?: { error?: string | null; savedAt?: string | null; savedRevision?: number }
+  ) => void
+  setAutosaveEnabled: (enabled: boolean) => void
+  setProjectSnapshots: (snapshots: ProjectSnapshotRef[]) => void
+  setProjectReadOnly: (readOnly: boolean) => void
   setRecentProjects: (projects: RecentProject[]) => void
   beginRender: (renderId: string, operation: RenderOperation, generation?: number) => void
   setRenderProgress: (progress: RenderProgress) => void
@@ -220,12 +244,54 @@ const initialIdentity = freshProjectIdentity()
 const outdatedHistory = (history: PreviewVersion[]): PreviewVersion[] =>
   history.map((version) => ({ ...version, outdated: true }))
 
-export const useAppStore = create<AppState>((set) => ({
+type StoreSetter = StoreApi<AppState>['setState']
+
+/**
+ * Advance the project revision whenever an action marks the project dirty.
+ *
+ * Roughly forty actions set `projectDirty: true`, and `projectDirty` on its own is a
+ * latch — it stays true across a whole editing session, so a debouncer watching it
+ * would never see a second edit. Wrapping the setter once means every current and
+ * future mutating action feeds the autosave timer without having to remember to.
+ *
+ * Guard-style actions that return the state object unchanged are skipped, so a no-op
+ * never counts as an edit.
+ */
+function withRevisionTracking(set: StoreSetter): StoreSetter {
+  return ((partial: unknown, replace?: unknown) => {
+    const apply = (state: AppState): Partial<AppState> | AppState => {
+      const next = typeof partial === 'function'
+        ? (partial as (value: AppState) => Partial<AppState> | AppState)(state)
+        : (partial as Partial<AppState>)
+      if (next === state || !next || typeof next !== 'object') return next
+      if ((next as Partial<AppState>).projectDirty !== true) return next
+      return {
+        ...next,
+        projectRevision: state.projectRevision + 1,
+        autosaveStatus: state.autosaveStatus === 'failed' ? 'failed' : ('unsaved' as AutosaveStatus)
+      }
+    }
+    ;(set as (updater: unknown, replace?: unknown) => void)(apply, replace)
+  }) as StoreSetter
+}
+
+export const useAppStore = create<AppState>((rawSet) => {
+  const set = withRevisionTracking(rawSet)
+  return ({
   screen: 'home',
   projectSettings: createDefaultProjectSettings(),
   ...initialIdentity,
   projectFilePath: null,
   projectDirty: false,
+  projectRevision: 0,
+  autosaveStatus: 'idle' as AutosaveStatus,
+  autosaveError: null,
+  lastSavedAt: null,
+  autosaveEnabled: true,
+  projectSnapshots: [],
+  projectReadOnly: false,
+  sourceMedia: [],
+  proxyRecords: [],
   clips: [],
   selectedClipId: null,
   ffmpegStatus: null,
@@ -284,6 +350,14 @@ export const useAppStore = create<AppState>((set) => ({
     ...freshProjectIdentity(),
     projectFilePath: null,
     projectDirty: false,
+    projectRevision: 0,
+    autosaveStatus: 'idle' as AutosaveStatus,
+    autosaveError: null,
+    lastSavedAt: null,
+    projectSnapshots: [],
+    projectReadOnly: false,
+    sourceMedia: [],
+    proxyRecords: [],
     clips: [],
     selectedClipId: null,
     importFailures: [],
@@ -333,6 +407,14 @@ export const useAppStore = create<AppState>((set) => ({
     projectCreatedAt: project.createdAt,
     projectFilePath,
     projectDirty: false,
+    projectRevision: project.projectRevision,
+    autosaveStatus: 'idle' as AutosaveStatus,
+    autosaveError: null,
+    lastSavedAt: null,
+    projectSnapshots: [],
+    projectReadOnly: false,
+    sourceMedia: project.sourceMedia,
+    proxyRecords: project.proxyRecords,
     clips,
     selectedClipId: clips[0]?.id ?? null,
     importFailures,
@@ -569,30 +651,64 @@ export const useAppStore = create<AppState>((set) => ({
     previewHistory: outdatedHistory(state.previewHistory),
     exportResult: null
   })),
-  markProjectSaved: (saved) => set({
-    projectFilePath: saved.filePath,
-    projectId: saved.project.id,
-    projectCreatedAt: saved.project.createdAt,
-    projectSettings: saved.project.settings,
-    previewHistory: saved.project.previewHistory,
-    editPlan: saved.project.editPlan,
-    transcriptReferences: saved.project.transcriptReferences,
-    transcriptCorrections: saved.project.transcriptCorrections,
-    textEdits: saved.project.textEdits,
-    transcriptEditRevision: saved.project.transcriptEditRevision,
-    semanticAnalysisReference: saved.project.semanticAnalysis,
-    topics: saved.project.topics,
-    semanticHints: saved.project.semanticHints,
-    highlightCandidates: saved.project.highlightCandidates,
-    outputVariants: saved.project.outputVariants,
-    diarizationReferences: saved.project.diarizationReferences,
-    speakerLabels: saved.project.speakerLabels,
-    confidenceReviews: saved.project.confidenceReviews,
-    userVocabulary: saved.project.userVocabulary,
-    semanticCollections: saved.project.semanticCollections,
-    projectCaptionTemplates: saved.project.projectCaptionTemplates,
-    projectDirty: false
+  markProjectSaved: (saved, savedRevision) => set((state) => {
+    // Saving does not change the project's content — the file was built from this very
+    // state — so the content slices are deliberately left alone. Re-hydrating them
+    // would revert anything the user typed while the write was in flight.
+    const identityChanged = saved.project.id !== state.projectId
+    const coversEverything = savedRevision === undefined || savedRevision === state.projectRevision
+    return {
+      projectFilePath: saved.filePath,
+      projectId: saved.project.id,
+      projectCreatedAt: saved.project.createdAt,
+      sourceMedia: saved.project.sourceMedia,
+      proxyRecords: saved.project.proxyRecords,
+      // Save As mints a new identity and rewrites every embedded reference to match.
+      // Those rewritten references are the one thing the store cannot derive itself.
+      ...(identityChanged
+        ? {
+            editPlan: saved.project.editPlan,
+            previewHistory: saved.project.previewHistory,
+            outputVariants: saved.project.outputVariants,
+            transcriptReferences: saved.project.transcriptReferences,
+            diarizationReferences: saved.project.diarizationReferences,
+            semanticAnalysisReference: saved.project.semanticAnalysis,
+            projectSnapshots: saved.project.snapshotRefs
+          }
+        : {}),
+      ...(coversEverything
+        ? {
+            projectDirty: false,
+            autosaveStatus: 'saved' as AutosaveStatus,
+            autosaveError: null,
+            lastSavedAt: new Date().toISOString()
+          }
+        : { autosaveStatus: 'unsaved' as AutosaveStatus }),
+      projectReadOnly: false
+    }
   }),
+  markMeaningfulChange: () => set((state) => ({
+    projectRevision: state.projectRevision + 1,
+    projectDirty: true,
+    autosaveStatus: state.autosaveStatus === 'failed' ? 'failed' : ('unsaved' as AutosaveStatus)
+  })),
+  setAutosaveStatus: (autosaveStatus, detail) => set((state) => {
+    // A save reports the revision it actually wrote. If the user edited while that
+    // write was in flight, the project is still dirty and must not be shown as saved,
+    // or the newest edit would live only in memory with nothing scheduled to persist it.
+    const savedEverything =
+      autosaveStatus === 'saved' &&
+      (detail?.savedRevision === undefined || detail.savedRevision === state.projectRevision)
+    return {
+      autosaveStatus: autosaveStatus === 'saved' && !savedEverything ? ('unsaved' as AutosaveStatus) : autosaveStatus,
+      autosaveError: detail?.error === undefined ? (autosaveStatus === 'failed' ? state.autosaveError : null) : detail.error,
+      lastSavedAt: detail?.savedAt === undefined ? state.lastSavedAt : detail.savedAt,
+      ...(savedEverything ? { projectDirty: false } : {})
+    }
+  }),
+  setAutosaveEnabled: (autosaveEnabled) => set({ autosaveEnabled }),
+  setProjectSnapshots: (projectSnapshots) => set({ projectSnapshots }),
+  setProjectReadOnly: (projectReadOnly) => set({ projectReadOnly }),
   setRecentProjects: (recentProjects) => set({ recentProjects }),
   beginRender: (activeRenderId, renderOperation, generation) => set({
     activeRenderId,
@@ -1013,4 +1129,5 @@ export const useAppStore = create<AppState>((set) => ({
   setUserVocabulary: (userVocabulary) => set({ userVocabulary, projectDirty: true }),
   setSemanticCollections: (semanticCollections) => set({ semanticCollections, projectDirty: true }),
   setProjectCaptionTemplates: (projectCaptionTemplates) => set({ projectCaptionTemplates, projectDirty: true })
-}))
+})
+})

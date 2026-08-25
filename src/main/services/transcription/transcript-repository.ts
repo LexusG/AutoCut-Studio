@@ -1,7 +1,8 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Transcript, TranscriptReference } from '@shared/types'
 import { applicationStoragePaths } from '../filesystem/application-storage'
+import { writeFileAtomic } from '../filesystem/atomic-write'
 
 function safeId(value: string): string {
   if (!value || !/^[a-zA-Z0-9_-]+$/.test(value)) throw new Error('Transcript storage identifier is invalid.')
@@ -14,14 +15,7 @@ export function transcriptPath(projectId: string, sourceClipId: string): string 
 
 export async function saveTranscript(transcript: Transcript): Promise<TranscriptReference> {
   const path = transcriptPath(transcript.projectId, transcript.sourceClipId)
-  const temporary = `${path}.tmp-${process.pid}`
-  await mkdir(dirname(path), { recursive: true })
-  try {
-    await writeFile(temporary, `${JSON.stringify(transcript, null, 2)}\n`, 'utf8')
-    await rename(temporary, path)
-  } finally {
-    await rm(temporary, { force: true })
-  }
+  await writeFileAtomic(path, `${JSON.stringify(transcript, null, 2)}\n`)
   return {
     sourceClipId: transcript.sourceClipId,
     transcriptId: transcript.id,

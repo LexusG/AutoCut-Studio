@@ -3,6 +3,7 @@ import { getPreset, getPresetsForPlatform, PLATFORM_LABELS } from '@shared/const
 import type { PlatformId } from '@shared/types'
 import { getPresetDisplayName } from '@shared/utils/project-settings'
 import { useAppStore } from '../stores/app-store'
+import { useAutoSnapshot } from '../hooks/use-auto-snapshot'
 
 const platformIcons = {
   instagram: Image,
@@ -16,6 +17,7 @@ const platforms: PlatformId[] = ['instagram', 'youtube', 'linkedin', 'custom']
 export function PlatformPresetSelector(): React.JSX.Element {
   const settings = useAppStore((state) => state.projectSettings)
   const selectPlatform = useAppStore((state) => state.selectPlatform)
+  const takeSnapshot = useAutoSnapshot()
   const selectPreset = useAppStore((state) => state.selectPreset)
   const presets = getPresetsForPlatform(settings.platform)
   const activePreset = getPreset(settings.presetId)
@@ -35,7 +37,10 @@ export function PlatformPresetSelector(): React.JSX.Element {
               type="button"
               role="tab"
               aria-selected={settings.platform === platform}
-              onClick={() => selectPlatform(platform)}
+              onClick={() => {
+                // Switching platform rewrites resolution, aspect, and duration targets.
+                void takeSnapshot('before-preset-change').then(() => selectPlatform(platform))
+              }}
             >
               <Icon size={14} />
               <span>{PLATFORM_LABELS[platform]}</span>
@@ -52,7 +57,11 @@ export function PlatformPresetSelector(): React.JSX.Element {
               type="button"
               role="option"
               aria-selected={settings.presetId === preset.id}
-              onClick={() => selectPreset(preset.id)}
+              onClick={() => {
+                // Preset changes rewrite resolution, aspect, and duration targets just
+                // as a platform switch does.
+                void takeSnapshot('before-preset-change').then(() => selectPreset(preset.id))
+              }}
             >
               <strong>{preset.name}</strong>
               <span>{preset.width} × {preset.height}</span>

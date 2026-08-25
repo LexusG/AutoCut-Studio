@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import type { PreviewStorageStats, PreviewVersion, RenderArtifact } from '@shared/types'
 import { allowMediaPath, createMediaUrl } from '../filesystem/media-access'
 import { applicationStoragePaths } from '../filesystem/application-storage'
+import { writeFileAtomic } from '../filesystem/atomic-write'
 import { runProcess } from '../ffmpeg/process'
 
 export const DEFAULT_PREVIEW_RETENTION = 10
@@ -234,7 +235,7 @@ export async function updatePreviewMetadata(projectId: string, version: PreviewV
   if (version.storage.state !== 'available') return
   const path = join(previewRoot(projectId, version.id), 'metadata.json')
   assertManagedPath(path)
-  await writeFile(path, `${JSON.stringify(metadataFor(projectId, version.id, version.artifact, version), null, 2)}\n`, 'utf8')
+  await writeFileAtomic(path, `${JSON.stringify(metadataFor(projectId, version.id, version.artifact, version), null, 2)}\n`)
 }
 
 export async function deleteManagedPreview(projectId: string, previewId: string): Promise<void> {

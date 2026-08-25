@@ -4,12 +4,14 @@ import { FinalPreviewPage } from './pages/FinalPreviewPage'
 import { HomePage } from './pages/HomePage'
 import { useAppStore } from './stores/app-store'
 import { usePersonAnalysisWorker } from './hooks/use-person-analysis-worker'
+import { useAutosave } from './hooks/use-autosave'
 
 export function App(): React.JSX.Element {
   const screen = useAppStore((state) => state.screen)
   const setFfmpegStatus = useAppStore((state) => state.setFfmpegStatus)
   const setPersonDetectionStatus = useAppStore((state) => state.setPersonDetectionStatus)
   usePersonAnalysisWorker()
+  useAutosave()
 
   useEffect(() => {
     let active = true

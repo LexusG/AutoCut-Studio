@@ -5,6 +5,7 @@ import { FfmpegNotice } from '../components/FfmpegNotice'
 import { useAppStore } from '../stores/app-store'
 import { formatRecentDate, sortRecentProjects, useProjectFiles } from '../hooks/use-project-files'
 import { SystemPanel } from '../components/SystemPanel'
+import { RecoveryDialog } from '../components/RecoveryDialog'
 
 export function HomePage(): React.JSX.Element {
   const [systemOpen, setSystemOpen] = useState(false)
@@ -69,6 +70,7 @@ export function HomePage(): React.JSX.Element {
 
       <footer className="home-footer">Local processing. Your footage stays on this computer.</footer>
       <SystemPanel open={systemOpen} close={() => setSystemOpen(false)} />
+      <RecoveryDialog />
     </main>
   )
 }

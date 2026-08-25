@@ -57,6 +57,13 @@ import type {
   SpeakerDiarizationResult
 } from './phase9'
 import type { TranscriptionQueueProgress, TranscriptionQueueRequest } from './phase9'
+import type {
+  ProjectIntegrityReport,
+  ProjectSnapshotDiff,
+  ProjectSnapshotRef,
+  RecoverySessionState,
+  SnapshotReason
+} from './phase10'
 
 export interface PersonAnalysisFrame {
   timestamp: number
@@ -163,6 +170,34 @@ export interface AutoCutApi {
   createHighlightReel: (request: HighlightReelRequest) => Promise<RenderPlan>
   exportChapters: (request: ChapterExportRequest) => Promise<string | null>
   getPathForFile: (file: File) => string
+  autosaveProject: (project: ProjectFile, filePath: string | null) => Promise<AutosaveResult>
+  saveProjectAs: (project: ProjectFile) => Promise<SavedProject | null>
+  getRecoveryState: () => Promise<RecoverySessionState>
+  recoverProject: (projectId: string) => Promise<ProjectFile>
+  discardRecovery: (projectId: string) => Promise<void>
+  listSnapshots: (projectId: string) => Promise<ProjectSnapshotRef[]>
+  createSnapshot: (project: ProjectFile, options: CreateSnapshotRequest) => Promise<ProjectSnapshotRef>
+  readSnapshot: (projectId: string, snapshotId: string) => Promise<ProjectFile>
+  diffSnapshot: (projectId: string, snapshotId: string, current: ProjectFile) => Promise<ProjectSnapshotDiff[]>
+  renameSnapshot: (projectId: string, snapshotId: string, name: string) => Promise<ProjectSnapshotRef[]>
+  deleteSnapshot: (projectId: string, snapshotId: string) => Promise<ProjectSnapshotRef[]>
+  validateProject: (project: ProjectFile) => Promise<ProjectIntegrityReport>
+}
+
+export interface CreateSnapshotRequest {
+  reason: SnapshotReason
+  name?: string
+}
+
+/**
+ * Autosave never opens a dialog, so it reports back rather than throwing: a project
+ * with nowhere to be written yet is journalled and reported as `journalled`.
+ */
+export interface AutosaveResult {
+  state: 'saved' | 'journalled' | 'failed'
+  filePath: string | null
+  savedAt: string
+  message: string | null
 }
 
 export const IPC_CHANNELS = {
@@ -197,6 +232,18 @@ export const IPC_CHANNELS = {
   chooseAudio: 'files:choose-audio',
   importAudio: 'media:import-audio',
   saveProject: 'projects:save',
+  autosaveProject: 'projects:autosave',
+  saveProjectAs: 'projects:save-as',
+  recoveryState: 'projects:recovery-state',
+  recoverProject: 'projects:recover',
+  discardRecovery: 'projects:discard-recovery',
+  snapshotList: 'projects:snapshot-list',
+  snapshotCreate: 'projects:snapshot-create',
+  snapshotRead: 'projects:snapshot-read',
+  snapshotDiff: 'projects:snapshot-diff',
+  snapshotRename: 'projects:snapshot-rename',
+  snapshotDelete: 'projects:snapshot-delete',
+  validateProject: 'projects:validate',
   chooseProject: 'projects:choose',
   openProject: 'projects:open',
   recentProjects: 'projects:recent',

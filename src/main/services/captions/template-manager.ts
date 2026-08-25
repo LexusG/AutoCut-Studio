@@ -1,8 +1,9 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { CaptionSettings, CaptionTemplate } from '@shared/types'
 import { createDefaultProjectSettings } from '@shared/utils/project-settings'
 import { applicationStoragePaths } from '../filesystem/application-storage'
+import { writeFileAtomic } from '../filesystem/atomic-write'
 
 const BUILT_IN_DATE = '2026-01-01T00:00:00.000Z'
 
@@ -45,11 +46,7 @@ async function customTemplates(): Promise<CaptionTemplate[]> {
 }
 
 async function persist(templates: CaptionTemplate[]): Promise<void> {
-  const path = settingsPath()
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.tmp`
-  await writeFile(temporary, `${JSON.stringify(templates, null, 2)}\n`, { mode: 0o600 })
-  await rename(temporary, path)
+  await writeFileAtomic(settingsPath(), `${JSON.stringify(templates, null, 2)}\n`, { mode: 0o600 })
 }
 
 export async function getCaptionTemplates(): Promise<CaptionTemplate[]> {
