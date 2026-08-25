@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_RENDER_SETTINGS, type AudioTrack, type RenderArtifact } from '../src/shared/types'
 import { parseProjectFile, serializeProjectFile } from '../src/shared/utils/project-codec'
+import { PROJECT_SCHEMA_VERSION } from '../src/shared/utils/migrations'
 import {
   applyPlatformPreset,
   createDefaultProjectSettings,
@@ -116,7 +117,7 @@ describe('project settings persistence', () => {
       previewHistory: undefined
     }
     const migrated = parseProjectFile(JSON.stringify(legacy))
-    expect(migrated.version).toBe(9)
+    expect(migrated.version).toBe(PROJECT_SCHEMA_VERSION)
     expect(migrated.settings.editing.contentAwareness).toBe('off')
     expect(migrated.settings.editing.speechCutProtection).toBe('off')
     expect(migrated.settings.editing.cutSync).toBe('natural')
@@ -191,7 +192,7 @@ describe('project settings persistence', () => {
       version: number
       previewHistory: Array<{ artifact: { outputPath: string; logPath: string }; thumbnailPath: string }>
     }
-    expect(serialized.version).toBe(9)
+    expect(serialized.version).toBe(PROJECT_SCHEMA_VERSION)
     expect(serialized.previewHistory[0].artifact.outputPath).toBe('')
     expect(serialized.previewHistory[0].artifact.logPath).toBe('')
     expect(serialized.previewHistory[0].thumbnailPath).toBe('')

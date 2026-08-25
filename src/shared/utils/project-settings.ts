@@ -1,5 +1,7 @@
 import { getPreset, PLATFORM_LABELS } from '../constants/presets'
 import { PROJECT_SCHEMA_VERSION } from './migrations/steps'
+import { EDIT_STYLE_VERSION, getEditStyle } from '../constants/edit-styles'
+import type { EditStyleId } from '../types/phase11'
 import type {
   PlatformId,
   ProjectFile,
@@ -81,7 +83,17 @@ export function createDefaultProjectSettings(): ProjectSettings {
       selectionSeed: 0,
       contentAwareness: 'balanced',
       speechCutProtection: 'normal',
-      cutSync: 'natural'
+      cutSync: 'natural',
+      // New projects opt into automatic style selection; migrated ones get `null`.
+      editStyle: { id: 'auto', version: EDIT_STYLE_VERSION },
+      openingStrategy: 'automatic',
+      endingStrategy: 'automatic',
+      transitionStrategy: 'automatic',
+      autoMotion: 'subtle',
+      visualConsistency: 'basic',
+      semanticFlow: 'balanced',
+      editStructure: 'auto',
+      versionCount: 3
     },
     audio: {
       backgroundTrack: null,
@@ -182,6 +194,67 @@ export function isPresetModified(settings: ProjectSettings): boolean {
     output.videoCodec !== preset.videoCodec ||
     output.audioCodec !== preset.audioCodec
   )
+}
+
+/**
+ * Apply an edit style's defaults across the whole settings object.
+ *
+ * A style is a coherent set of choices — pace, cut sync, transitions, captions, motion
+ * and audio all move together — because setting only one of them produces an edit that
+ * feels inconsistent. Everything written here remains user-overridable afterwards.
+ *
+ * `'auto'` records the intent without committing to a look: the concrete style is chosen
+ * from the footage at plan time, so the settings themselves are left alone.
+ */
+export function applyEditStyle(settings: ProjectSettings, styleId: EditStyleId): ProjectSettings {
+  if (styleId === 'auto') {
+    return {
+      ...settings,
+      editing: { ...settings.editing, editStyle: { id: 'auto', version: EDIT_STYLE_VERSION } }
+    }
+  }
+
+  const style = getEditStyle(styleId)
+  if (!style) throw new Error('The selected edit style is unavailable.')
+
+  return {
+    ...settings,
+    editing: {
+      ...settings.editing,
+      editStyle: { id: style.id, version: style.version },
+      pace: style.pace,
+      cutSync: style.cutSync,
+      contentAwareness: style.contentAwareness,
+      transitionPreference:
+        style.transitionStrategy === 'minimal' ? 'none' : settings.editing.transitionPreference,
+      transitionDuration: style.transitionDuration,
+      transitionStrategy: style.transitionStrategy,
+      openingStrategy: style.openingStrategy,
+      endingStrategy: style.endingStrategy,
+      autoMotion: style.autoMotion,
+      visualConsistency: style.visualConsistency,
+      semanticFlow: style.semanticFlow,
+      editStructure: style.editStructure,
+      smartPreferences: {
+        ...settings.editing.smartPreferences,
+        preferSpeech: style.preferSpeech,
+        preferMotion: style.preferMotion
+      }
+    },
+    captions: {
+      ...settings.captions,
+      mode: style.captionMode,
+      templateId: style.captionTemplateId,
+      style: { ...settings.captions.style, preset: style.captionTemplateId as ProjectSettings['captions']['style']['preset'] }
+    },
+    captionTemplateId: style.captionTemplateId,
+    audio: {
+      ...settings.audio,
+      musicVolume: style.audio.musicVolume,
+      fadeIn: { ...settings.audio.fadeIn, duration: style.audio.fadeInSeconds },
+      fadeOut: { ...settings.audio.fadeOut, duration: style.audio.fadeOutSeconds }
+    }
+  }
 }
 
 function withGeneratedFilename(settings: ProjectSettings): ProjectSettings {
@@ -332,6 +405,14 @@ export function toRenderSettings(settings: ProjectSettings): RenderSettings {
     contentAwareness: settings.editing.contentAwareness,
     speechCutProtection: settings.editing.speechCutProtection,
     cutSync: settings.editing.cutSync,
+    editStyle: settings.editing.editStyle,
+    openingStrategy: settings.editing.openingStrategy,
+    endingStrategy: settings.editing.endingStrategy,
+    transitionStrategy: settings.editing.transitionStrategy,
+    autoMotion: settings.editing.autoMotion,
+    visualConsistency: settings.editing.visualConsistency,
+    semanticFlow: settings.editing.semanticFlow,
+    editStructure: settings.editing.editStructure,
     cropFocus: settings.output.cropFocus,
     captions: structuredClone(settings.captions),
     semantic: structuredClone(settings.semantic)

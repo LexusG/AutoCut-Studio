@@ -45,6 +45,17 @@ import type {
   SpeakerProjectSettings
 } from './phase9'
 import type { ProjectSnapshotRef, ProxyRecord, SourceMediaRecord } from './phase10'
+import type {
+  AutoMotionMode,
+  EditStructureId,
+  EditStyleRef,
+  EndingStrategy,
+  OpeningStrategy,
+  SemanticFlowMode,
+  TransitionStrategy,
+  VersionCount,
+  VisualConsistencyMode
+} from './phase11'
 
 export type PlatformId = 'instagram' | 'youtube' | 'linkedin' | 'custom'
 export type Orientation = 'landscape' | 'portrait' | 'square' | 'source'
@@ -108,6 +119,19 @@ export interface EditingSettings {
   contentAwareness: ContentAwarenessMode
   speechCutProtection: SpeechCutProtection
   cutSync: CutSyncMode
+  /**
+   * `null` means this project predates edit styles and must keep rendering exactly as
+   * it did before. Every Phase 11 planner is a no-op in that case.
+   */
+  editStyle: EditStyleRef | null
+  openingStrategy: OpeningStrategy
+  endingStrategy: EndingStrategy
+  transitionStrategy: TransitionStrategy
+  autoMotion: AutoMotionMode
+  visualConsistency: VisualConsistencyMode
+  semanticFlow: SemanticFlowMode
+  editStructure: EditStructureId
+  versionCount: VersionCount
 }
 
 export interface AudioTrack {
@@ -192,7 +216,7 @@ export interface ProjectSettings {
 }
 
 export interface ProjectFile {
-  version: 9
+  version: 10
   id: string
   createdAt: string
   updatedAt: string

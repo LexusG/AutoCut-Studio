@@ -114,6 +114,17 @@ function validatePaths(value: unknown): string[] {
   return value
 }
 
+/** `null` is valid and means "legacy project, no edit style". */
+function isEditStyleRef(value: unknown): boolean {
+  if (value === null || value === undefined) return true
+  if (typeof value !== 'object') return false
+  const ref = value as { id?: unknown; version?: unknown }
+  return (
+    ['auto', 'clean', 'social-fast', 'cinematic', 'energetic', 'story'].includes(ref.id as string) &&
+    Number.isInteger(ref.version)
+  )
+}
+
 function isRenderSettings(value: unknown): value is RenderSettings {
   if (!value || typeof value !== 'object') return false
   const settings = value as Partial<RenderSettings>
@@ -173,6 +184,14 @@ function isRenderSettings(value: unknown): value is RenderSettings {
     ['off', 'balanced', 'strong'].includes(settings.contentAwareness ?? '') &&
     ['off', 'normal', 'strong'].includes(settings.speechCutProtection ?? '') &&
     ['natural', 'beat-assisted', 'beat-strong'].includes(settings.cutSync ?? '') &&
+    isEditStyleRef(settings.editStyle) &&
+    ['automatic', 'strong-visual', 'strong-speech', 'strong-motion', 'chronological'].includes(settings.openingStrategy ?? '') &&
+    ['automatic', 'strong-result', 'natural-conclusion', 'fade-out', 'chronological'].includes(settings.endingStrategy ?? '') &&
+    ['uniform', 'automatic', 'minimal'].includes(settings.transitionStrategy ?? '') &&
+    ['off', 'subtle', 'dynamic'].includes(settings.autoMotion ?? '') &&
+    ['off', 'basic'].includes(settings.visualConsistency ?? '') &&
+    ['off', 'balanced', 'strong'].includes(settings.semanticFlow ?? '') &&
+    ['auto', 'hook-build-payoff', 'quick-montage', 'story-arc', 'showcase', 'before-after', 'chronological-story'].includes(settings.editStructure ?? '') &&
     ['center', 'smart-subject'].includes(settings.cropFocus ?? '') &&
     Boolean(captions) &&
     ['off', 'standard', 'dynamic'].includes(captions?.mode ?? '') &&

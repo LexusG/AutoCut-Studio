@@ -124,6 +124,37 @@ export const MIGRATIONS: ProjectMigration[] = [
         projectRevision: Number.isInteger(raw.projectRevision) ? raw.projectRevision : 0
       }
     }
+  },
+  {
+    from: 9,
+    to: 10,
+    describe: 'Add edit styles, opening/ending strategy, motion, and version settings',
+    migrate: (raw) => {
+      const settings = asRecord(raw.settings)
+      const editing = asRecord(settings.editing)
+      return {
+        ...raw,
+        version: 10,
+        settings: {
+          ...settings,
+          editing: {
+            ...editing,
+            // A project made before edit styles must keep rendering exactly as it did.
+            // `null` is the explicit "legacy" marker every Phase 11 planner checks, so
+            // an old edit is never silently reinterpreted by a newer style definition.
+            editStyle: editing.editStyle ?? null,
+            openingStrategy: editing.openingStrategy ?? 'chronological',
+            endingStrategy: editing.endingStrategy ?? 'chronological',
+            transitionStrategy: editing.transitionStrategy ?? 'uniform',
+            autoMotion: editing.autoMotion ?? 'off',
+            visualConsistency: editing.visualConsistency ?? 'off',
+            semanticFlow: editing.semanticFlow ?? 'off',
+            editStructure: editing.editStructure ?? 'chronological-story',
+            versionCount: editing.versionCount ?? 1
+          }
+        }
+      }
+    }
   }
 ]
 
