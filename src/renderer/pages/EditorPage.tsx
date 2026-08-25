@@ -12,6 +12,7 @@ import { TranscriptPanel } from '../components/TranscriptPanel'
 import { SystemPanel } from '../components/SystemPanel'
 import { useVideoRender } from '../hooks/use-video-render'
 import { useProjectFiles } from '../hooks/use-project-files'
+import { flushAutosave } from '../hooks/use-autosave'
 import { useAppStore } from '../stores/app-store'
 
 export function EditorPage(): React.JSX.Element {
@@ -31,11 +32,28 @@ export function EditorPage(): React.JSX.Element {
   const readOnly = useAppStore((state) => state.projectReadOnly)
   const { save, saveAs, busy: projectBusy, message: projectMessage, error: projectError } = useProjectFiles()
 
+  /**
+   * Leaving the editor must not strand a pending autosave. The flush is awaited, and
+   * work that still has nowhere to be written is confirmed with the user rather than
+   * quietly left behind.
+   */
+  const leaveEditor = async (): Promise<void> => {
+    await flushAutosave()
+    const { projectDirty, projectFilePath } = useAppStore.getState()
+    if (projectDirty && !projectFilePath) {
+      const proceed = window.confirm(
+        'This project has never been saved to a file. Your changes are kept for recovery, but leaving now will not write them anywhere. Leave anyway?'
+      )
+      if (!proceed) return
+    }
+    returnHome()
+  }
+
   return (
     <main className="editor-page">
       <header className="editor-header">
         <div className="editor-header-left">
-          <button className="icon-button" type="button" onClick={returnHome} title="Back to Home" aria-label="Back to Home">
+          <button className="icon-button" type="button" onClick={() => void leaveEditor()} title="Back to Home" aria-label="Back to Home">
             <ArrowLeft size={19} />
           </button>
           <BrandMark compact />

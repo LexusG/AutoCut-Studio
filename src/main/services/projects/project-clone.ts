@@ -1,7 +1,8 @@
-import { cp, readdir } from 'node:fs/promises'
+import { cp, readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ProjectFile, RenderPlan } from '@shared/types'
 import { applicationStoragePaths } from '../filesystem/application-storage'
+import { writeFileAtomic } from '../filesystem/atomic-write'
 
 const safeId = (value: string): string => {
   if (!/^[a-zA-Z0-9_-]+$/.test(value)) throw new Error('The project identifier is invalid.')
@@ -48,6 +49,66 @@ function rekeyPlan(plan: RenderPlan | null, projectId: string): RenderPlan | nul
 }
 
 /**
+ * Rewrite the `projectId` stamped inside a copied JSON artifact.
+ *
+ * The loaders for transcripts, semantic analysis, and preview metadata all reject a
+ * body whose embedded project id does not match the project asking for it, so a
+ * verbatim copy would silently come back empty after a restart.
+ */
+async function rekeyArtifact(path: string, projectId: string): Promise<void> {
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+  } catch (error) {
+    if (isMissing(error)) return
+    throw error
+  }
+  if (!parsed || typeof parsed !== 'object' || !('projectId' in parsed)) return
+  await writeFileAtomic(path, `${JSON.stringify({ ...parsed, projectId }, null, 2)}\n`)
+}
+
+async function jsonFilesIn(directory: string): Promise<string[]> {
+  try {
+    return (await readdir(directory, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+      .map((entry) => join(directory, entry.name))
+  } catch (error) {
+    if (isMissing(error)) return []
+    throw error
+  }
+}
+
+async function subdirectoriesIn(directory: string): Promise<string[]> {
+  try {
+    return (await readdir(directory, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(directory, entry.name))
+  } catch (error) {
+    if (isMissing(error)) return []
+    throw error
+  }
+}
+
+/**
+ * Bring every copied artifact under the new project's identity.
+ *
+ * Embedding records carry no project id — they are keyed by content hash inside the
+ * project directory — so they need no rewriting.
+ */
+async function rekeyManagedArtifacts(root: string, projectId: string): Promise<void> {
+  for (const path of await jsonFilesIn(join(root, 'transcripts'))) {
+    await rekeyArtifact(path, projectId)
+  }
+  for (const path of await jsonFilesIn(join(root, 'analysis', 'diarization'))) {
+    await rekeyArtifact(path, projectId)
+  }
+  await rekeyArtifact(join(root, 'semantic', 'analysis.json'), projectId)
+  for (const previewDirectory of await subdirectoriesIn(join(root, 'previews'))) {
+    await rekeyArtifact(join(previewDirectory, 'metadata.json'), projectId)
+  }
+}
+
+/**
  * Give a project a fresh identity and its own copy of the managed sidecar data.
  *
  * Previews, transcripts, semantic caches, and diarization results all live under
@@ -61,7 +122,9 @@ function rekeyPlan(plan: RenderPlan | null, projectId: string): RenderPlan | nul
  */
 export async function cloneProjectIdentity(project: ProjectFile): Promise<ProjectFile> {
   const nextId = crypto.randomUUID()
-  await copyManagedData(managedProjectDirectory(project.id), managedProjectDirectory(nextId))
+  const destination = managedProjectDirectory(nextId)
+  await copyManagedData(managedProjectDirectory(project.id), destination)
+  await rekeyManagedArtifacts(destination, nextId)
 
   const rekeyPath = (relativePath: string): string =>
     relativePath.replace(`projects/${project.id}/`, `projects/${nextId}/`)

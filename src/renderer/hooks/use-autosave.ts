@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useAppStore } from '../stores/app-store'
 import { currentProjectFile } from '../stores/project-file'
 
@@ -7,6 +7,85 @@ export const AUTOSAVE_DEBOUNCE_MS = 30_000
 
 /** Retry cadence after a failed save, so a transient problem recovers on its own. */
 const RETRY_DELAY_MS = 60_000
+
+let timer: ReturnType<typeof setTimeout> | null = null
+let inFlight = false
+let rerunWhenDone = false
+
+function cancelTimer(): void {
+  if (timer !== null) {
+    clearTimeout(timer)
+    timer = null
+  }
+}
+
+function schedule(delay = AUTOSAVE_DEBOUNCE_MS): void {
+  cancelTimer()
+  timer = setTimeout(() => void save(), delay)
+}
+
+async function save(): Promise<void> {
+  if (inFlight) {
+    rerunWhenDone = true
+    return
+  }
+  const state = useAppStore.getState()
+  if (!state.autosaveEnabled || state.projectReadOnly) return
+  if (!state.projectDirty) return
+
+  inFlight = true
+  // Capture what this write covers. Anything edited after this point is not saved by
+  // it, however the write turns out.
+  const savedRevision = state.projectRevision
+  useAppStore.getState().setAutosaveStatus('saving')
+  try {
+    const result = await window.autoCut.autosaveProject(currentProjectFile(), state.projectFilePath)
+    if (result.state === 'failed') {
+      // The in-memory project is untouched and stays open; only the write failed.
+      useAppStore.getState().setAutosaveStatus('failed', { error: result.message })
+      schedule(RETRY_DELAY_MS)
+    } else if (result.state === 'saved') {
+      useAppStore.getState().setAutosaveStatus('saved', {
+        error: null,
+        savedAt: result.savedAt,
+        savedRevision
+      })
+      if (useAppStore.getState().projectRevision !== savedRevision) rerunWhenDone = true
+    } else {
+      // Journalled: recoverable, but the user has not chosen a destination yet.
+      useAppStore.getState().setAutosaveStatus('unsaved', { error: null })
+    }
+  } catch (error) {
+    useAppStore.getState().setAutosaveStatus('failed', {
+      error: error instanceof Error ? error.message : 'The project could not be saved automatically.'
+    })
+    schedule(RETRY_DELAY_MS)
+  } finally {
+    inFlight = false
+    if (rerunWhenDone) {
+      rerunWhenDone = false
+      schedule(0)
+    }
+  }
+}
+
+/**
+ * Persist any pending changes right now and wait for the result.
+ *
+ * Navigation away from the editor must call this: a debounced save that fires after the
+ * user has left would otherwise find the project already considered inactive, and the
+ * last half-minute of work would exist only in memory.
+ */
+export async function flushAutosave(): Promise<void> {
+  cancelTimer()
+  if (!useAppStore.getState().projectDirty) return
+  await save()
+  // A save that started while another was running defers its work; drain that too.
+  if (rerunWhenDone) {
+    rerunWhenDone = false
+    await save()
+  }
+}
 
 /**
  * Persist the project shortly after it stops changing.
@@ -18,72 +97,7 @@ const RETRY_DELAY_MS = 60_000
  * file when there is somewhere to write it.
  */
 export function useAutosave(): void {
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const inFlight = useRef(false)
-  const pending = useRef(false)
-
   useEffect(() => {
-    const cancelTimer = (): void => {
-      if (timer.current !== null) {
-        clearTimeout(timer.current)
-        timer.current = null
-      }
-    }
-
-    const run = async (): Promise<void> => {
-      if (inFlight.current) {
-        // A save is already running; remember to re-check once it finishes so the very
-        // last edit is never the one that gets dropped.
-        pending.current = true
-        return
-      }
-      const state = useAppStore.getState()
-      if (!state.autosaveEnabled || state.projectReadOnly || state.screen === 'home') return
-      if (!state.projectDirty) return
-
-      inFlight.current = true
-      // Capture what this write covers. Anything edited after this point is not saved
-      // by it, however the write turns out.
-      const savedRevision = state.projectRevision
-      useAppStore.getState().setAutosaveStatus('saving')
-      try {
-        const result = await window.autoCut.autosaveProject(currentProjectFile(), state.projectFilePath)
-        if (result.state === 'failed') {
-          // The in-memory project is untouched and stays open; only the write failed.
-          useAppStore.getState().setAutosaveStatus('failed', { error: result.message })
-          timer.current = setTimeout(() => void run(), RETRY_DELAY_MS)
-        } else if (result.state === 'saved') {
-          useAppStore.getState().setAutosaveStatus('saved', {
-            error: null,
-            savedAt: result.savedAt,
-            savedRevision
-          })
-          // Edits landed while the write was in flight; persist them promptly rather
-          // than waiting for the user's next keystroke to restart the debounce.
-          if (useAppStore.getState().projectRevision !== savedRevision) pending.current = true
-        } else {
-          // Journalled: recoverable, but the user has not chosen a destination yet.
-          useAppStore.getState().setAutosaveStatus('unsaved', { error: null })
-        }
-      } catch (error) {
-        useAppStore.getState().setAutosaveStatus('failed', {
-          error: error instanceof Error ? error.message : 'The project could not be saved automatically.'
-        })
-        timer.current = setTimeout(() => void run(), RETRY_DELAY_MS)
-      } finally {
-        inFlight.current = false
-        if (pending.current) {
-          pending.current = false
-          schedule()
-        }
-      }
-    }
-
-    const schedule = (): void => {
-      cancelTimer()
-      timer.current = setTimeout(() => void run(), AUTOSAVE_DEBOUNCE_MS)
-    }
-
     let lastRevision = useAppStore.getState().projectRevision
     const unsubscribe = useAppStore.subscribe((state) => {
       if (state.projectRevision === lastRevision) return
@@ -96,7 +110,7 @@ export function useAutosave(): void {
     // seconds still reaches the recovery journal on a normal close.
     const flush = (): void => {
       const state = useAppStore.getState()
-      if (!state.projectDirty || state.projectReadOnly || state.screen === 'home') return
+      if (!state.projectDirty || state.projectReadOnly) return
       void window.autoCut.autosaveProject(currentProjectFile(), state.projectFilePath).catch(() => undefined)
     }
     window.addEventListener('beforeunload', flush)

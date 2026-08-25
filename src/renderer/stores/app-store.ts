@@ -168,7 +168,7 @@ interface AppState {
   setBackgroundTrack: (track: AudioTrack | null) => void
   setOutputFilename: (filename: string) => void
   setPreviewQuality: (quality: PreviewQuality) => void
-  markProjectSaved: (saved: SavedProject) => void
+  markProjectSaved: (saved: SavedProject, savedRevision?: number) => void
   markMeaningfulChange: () => void
   setAutosaveStatus: (
     status: AutosaveStatus,
@@ -651,45 +651,42 @@ export const useAppStore = create<AppState>((rawSet) => {
     previewHistory: outdatedHistory(state.previewHistory),
     exportResult: null
   })),
-  markProjectSaved: (saved) => set({
-    projectFilePath: saved.filePath,
-    projectId: saved.project.id,
-    projectCreatedAt: saved.project.createdAt,
-    projectSettings: saved.project.settings,
-    previewHistory: saved.project.previewHistory,
-    editPlan: saved.project.editPlan,
-    transcriptReferences: saved.project.transcriptReferences,
-    transcriptCorrections: saved.project.transcriptCorrections,
-    textEdits: saved.project.textEdits,
-    transcriptEditRevision: saved.project.transcriptEditRevision,
-    semanticAnalysisReference: saved.project.semanticAnalysis,
-    topics: saved.project.topics,
-    semanticHints: saved.project.semanticHints,
-    highlightCandidates: saved.project.highlightCandidates,
-    outputVariants: saved.project.outputVariants,
-    diarizationReferences: saved.project.diarizationReferences,
-    speakerLabels: saved.project.speakerLabels,
-    confidenceReviews: saved.project.confidenceReviews,
-    userVocabulary: saved.project.userVocabulary,
-    semanticCollections: saved.project.semanticCollections,
-    projectCaptionTemplates: saved.project.projectCaptionTemplates,
-    projectRevision: saved.project.projectRevision,
-    sourceMedia: saved.project.sourceMedia,
-    proxyRecords: saved.project.proxyRecords,
-    projectDirty: false,
-    autosaveStatus: 'saved' as AutosaveStatus,
-    autosaveError: null,
-    lastSavedAt: new Date().toISOString(),
-    projectReadOnly: false
+  markProjectSaved: (saved, savedRevision) => set((state) => {
+    // Saving does not change the project's content — the file was built from this very
+    // state — so the content slices are deliberately left alone. Re-hydrating them
+    // would revert anything the user typed while the write was in flight.
+    const identityChanged = saved.project.id !== state.projectId
+    const coversEverything = savedRevision === undefined || savedRevision === state.projectRevision
+    return {
+      projectFilePath: saved.filePath,
+      projectId: saved.project.id,
+      projectCreatedAt: saved.project.createdAt,
+      sourceMedia: saved.project.sourceMedia,
+      proxyRecords: saved.project.proxyRecords,
+      // Save As mints a new identity and rewrites every embedded reference to match.
+      // Those rewritten references are the one thing the store cannot derive itself.
+      ...(identityChanged
+        ? {
+            editPlan: saved.project.editPlan,
+            previewHistory: saved.project.previewHistory,
+            outputVariants: saved.project.outputVariants,
+            transcriptReferences: saved.project.transcriptReferences,
+            diarizationReferences: saved.project.diarizationReferences,
+            semanticAnalysisReference: saved.project.semanticAnalysis,
+            projectSnapshots: saved.project.snapshotRefs
+          }
+        : {}),
+      ...(coversEverything
+        ? {
+            projectDirty: false,
+            autosaveStatus: 'saved' as AutosaveStatus,
+            autosaveError: null,
+            lastSavedAt: new Date().toISOString()
+          }
+        : { autosaveStatus: 'unsaved' as AutosaveStatus }),
+      projectReadOnly: false
+    }
   }),
-  /**
-   * Mark a change worth persisting.
-   *
-   * `projectDirty` alone cannot drive autosave, because it stays true across many
-   * successive edits and gives the debouncer nothing new to react to. The revision
-   * counter changes on every meaningful edit, so a burst of typing coalesces into a
-   * single write while a genuine new change always restarts the timer.
-   */
   markMeaningfulChange: () => set((state) => ({
     projectRevision: state.projectRevision + 1,
     projectDirty: true,

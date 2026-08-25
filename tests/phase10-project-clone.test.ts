@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -111,6 +111,58 @@ describe('Save As project cloning', () => {
     // Restoring a copied snapshot would switch the copy back to the original identity.
     expect(clone.snapshotRefs).toEqual([])
     await expect(readdir(join(managedDir(clone.id), 'snapshots'))).rejects.toThrow()
+  })
+
+  it('rekeys the project id stamped inside copied sidecar bodies', async () => {
+    // The transcript and semantic loaders reject a body whose embedded project id does
+    // not match the project asking for it, so a verbatim copy comes back empty.
+    await mkdir(join(managedDir(ORIGINAL_ID), 'semantic'), { recursive: true })
+    await writeFile(
+      join(managedDir(ORIGINAL_ID), 'semantic', 'analysis.json'),
+      JSON.stringify({ projectId: ORIGINAL_ID, chunks: [], topics: [] }),
+      'utf8'
+    )
+    await writeFile(
+      join(managedDir(ORIGINAL_ID), 'transcripts', 'clip-a.json'),
+      JSON.stringify({ version: 1, projectId: ORIGINAL_ID, sourceClipId: 'clip-a', words: [] }),
+      'utf8'
+    )
+    await mkdir(join(managedDir(ORIGINAL_ID), 'previews', 'preview-1'), { recursive: true })
+    await writeFile(
+      join(managedDir(ORIGINAL_ID), 'previews', 'preview-1', 'metadata.json'),
+      JSON.stringify({ schemaVersion: 1, previewId: 'preview-1', projectId: ORIGINAL_ID }),
+      'utf8'
+    )
+
+    const clone = await cloneProjectIdentity(project())
+
+    const transcript = JSON.parse(
+      await readFile(join(managedDir(clone.id), 'transcripts', 'clip-a.json'), 'utf8')
+    ) as { projectId: string }
+    const analysis = JSON.parse(
+      await readFile(join(managedDir(clone.id), 'semantic', 'analysis.json'), 'utf8')
+    ) as { projectId: string }
+    const metadata = JSON.parse(
+      await readFile(join(managedDir(clone.id), 'previews', 'preview-1', 'metadata.json'), 'utf8')
+    ) as { projectId: string }
+
+    expect(transcript.projectId).toBe(clone.id)
+    expect(analysis.projectId).toBe(clone.id)
+    expect(metadata.projectId).toBe(clone.id)
+
+    // The original's bodies are untouched.
+    const originalTranscript = JSON.parse(
+      await readFile(join(managedDir(ORIGINAL_ID), 'transcripts', 'clip-a.json'), 'utf8')
+    ) as { projectId: string }
+    expect(originalTranscript.projectId).toBe(ORIGINAL_ID)
+  })
+
+  it('leaves embedding records alone, since they carry no project identity', async () => {
+    await mkdir(join(managedDir(ORIGINAL_ID), 'semantic', 'embeddings'), { recursive: true })
+    const record = JSON.stringify({ id: 'e1', contentHash: 'abc', vector: [0.1] })
+    await writeFile(join(managedDir(ORIGINAL_ID), 'semantic', 'embeddings', 'abc.json'), record, 'utf8')
+    const clone = await cloneProjectIdentity(project())
+    expect(await readFile(join(managedDir(clone.id), 'semantic', 'embeddings', 'abc.json'), 'utf8')).toBe(record)
   })
 
   it('clones a project that has never written managed data', async () => {

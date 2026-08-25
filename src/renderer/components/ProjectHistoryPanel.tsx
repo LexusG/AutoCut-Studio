@@ -1,6 +1,7 @@
 import { CameraIcon, History, Pencil, RotateCcw, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import type { ProjectSnapshotDiff, ProjectSnapshotRef } from '@shared/types'
+import { useProjectFiles } from '../hooks/use-project-files'
 import { useAppStore } from '../stores/app-store'
 import { currentProjectFile } from '../stores/project-file'
 import { formatFileSize } from '../utils/format'
@@ -24,9 +25,7 @@ export function ProjectHistoryPanel(): React.JSX.Element {
   const projectRevision = useAppStore((state) => state.projectRevision)
   const readOnly = useAppStore((state) => state.projectReadOnly)
   const setProjectSnapshots = useAppStore((state) => state.setProjectSnapshots)
-  const loadProject = useAppStore((state) => state.loadProject)
-  const clips = useAppStore((state) => state.clips)
-  const importFailures = useAppStore((state) => state.importFailures)
+  const { openRestoredProject } = useProjectFiles()
 
   const refresh = useCallback(async (): Promise<void> => {
     const listed = await window.autoCut.listSnapshots(projectId).catch(() => [])
@@ -74,7 +73,8 @@ export function ProjectHistoryPanel(): React.JSX.Element {
       // Snapshot the present first, so restoring is itself reversible.
       await window.autoCut.createSnapshot(currentProjectFile(), { reason: 'before-restore' })
       const restored = await window.autoCut.readSnapshot(projectId, snapshotId)
-      loadProject(restored, useAppStore.getState().projectFilePath ?? '', clips, importFailures)
+      // Re-imports the snapshot's own media rather than reusing the current clip list.
+      await openRestoredProject(restored)
       await refresh()
     })
 

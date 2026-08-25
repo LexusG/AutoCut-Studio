@@ -57,7 +57,11 @@ export function PlatformPresetSelector(): React.JSX.Element {
               type="button"
               role="option"
               aria-selected={settings.presetId === preset.id}
-              onClick={() => selectPreset(preset.id)}
+              onClick={() => {
+                // Preset changes rewrite resolution, aspect, and duration targets just
+                // as a platform switch does.
+                void takeSnapshot('before-preset-change').then(() => selectPreset(preset.id))
+              }}
             >
               <strong>{preset.name}</strong>
               <span>{preset.width} × {preset.height}</span>

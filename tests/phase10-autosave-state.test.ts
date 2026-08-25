@@ -88,6 +88,55 @@ describe('autosave dirty tracking', () => {
     expect(state().projectRevision).toBe(4)
   })
 
+  it('does not revert a live edit made while a manual save was writing', () => {
+    state().setProjectName('Before save')
+    const savedRevision = state().projectRevision
+    const written = currentProjectFile()
+
+    // The user keeps editing while the write is in flight.
+    state().setProjectName('Typed during save')
+
+    state().markProjectSaved({ filePath: '/projects/one.autocut.json', project: written }, savedRevision)
+
+    // The save covered an older revision, so the project is still dirty and the newer
+    // name must survive rather than being replaced by the written snapshot.
+    expect(state().projectSettings.name).toBe('Typed during save')
+    expect(state().projectDirty).toBe(true)
+    expect(state().autosaveStatus).toBe('unsaved')
+    expect(state().projectFilePath).toBe('/projects/one.autocut.json')
+  })
+
+  it('clears dirty when a manual save covered the newest revision', () => {
+    state().setProjectName('Only edit')
+    const written = currentProjectFile()
+    state().markProjectSaved(
+      { filePath: '/projects/one.autocut.json', project: written },
+      state().projectRevision
+    )
+    expect(state().projectDirty).toBe(false)
+    expect(state().autosaveStatus).toBe('saved')
+  })
+
+  it('adopts rewritten references when Save As changes the project identity', () => {
+    state().setProjectName('Copy me')
+    const written = currentProjectFile()
+    const clone = {
+      ...written,
+      id: 'brand-new-identity',
+      transcriptReferences: [
+        { sourceClipId: 'clip-a', relativePath: 'projects/brand-new-identity/transcripts/clip-a.json' }
+      ] as typeof written.transcriptReferences,
+      snapshotRefs: []
+    }
+    state().markProjectSaved({ filePath: '/projects/copy.autocut.json', project: clone }, state().projectRevision)
+
+    expect(state().projectId).toBe('brand-new-identity')
+    // Rewritten references are the one thing the store cannot derive for itself.
+    expect(state().transcriptReferences[0].relativePath).toBe(
+      'projects/brand-new-identity/transcripts/clip-a.json'
+    )
+  })
+
   it('resets autosave state when a new project starts', () => {
     state().setProjectName('Edited')
     state().setAutosaveStatus('failed', { error: 'Permission denied' })

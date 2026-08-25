@@ -8,6 +8,7 @@ interface ProjectFileActions {
   save: () => Promise<boolean>
   saveAs: () => Promise<boolean>
   openRecoveredProject: (project: ProjectFile, filePath: string | null) => Promise<void>
+  openRestoredProject: (project: ProjectFile) => Promise<void>
   chooseAndOpen: () => Promise<boolean>
   openRecent: (path: string) => Promise<boolean>
   removeRecent: (path: string) => Promise<void>
@@ -92,6 +93,21 @@ export function useProjectFiles(): ProjectFileActions {
     [markDirtyAfterRecovery, openLoadedProject]
   )
 
+  /**
+   * Load a restored snapshot, re-importing the media it actually referenced.
+   *
+   * Reusing the current clip list would pair a restored edit plan with today's media
+   * and leave segments pointing at clips the snapshot never had.
+   */
+  const openRestoredProject = useCallback(
+    async (project: ProjectFile): Promise<void> => {
+      await openLoadedProject({ project, filePath: useAppStore.getState().projectFilePath })
+      markDirtyAfterRecovery()
+      setMessage(`Restored ${project.settings.name}`)
+    },
+    [markDirtyAfterRecovery, openLoadedProject]
+  )
+
   const chooseAndOpen = useCallback(async (): Promise<boolean> => {
     setBusy(true)
     clearFeedback()
@@ -136,10 +152,12 @@ export function useProjectFiles(): ProjectFileActions {
     }
 
     setBusy(true)
+    // Editing stays live during the write, so record what this save actually covers.
+    const savedRevision = useAppStore.getState().projectRevision
     try {
       const saved = await window.autoCut.saveProject(currentProjectFile(), projectFilePath)
       if (!saved) return false
-      markSaved(saved)
+      markSaved(saved, savedRevision)
       setMessage('Project saved')
       await refreshRecent()
       return true
@@ -158,9 +176,10 @@ export function useProjectFiles(): ProjectFileActions {
       // Save As mints a new project identity and clones the managed sidecar storage in
       // the main process, so the copy and the original never share transcripts,
       // previews, or caches.
+      const savedRevision = useAppStore.getState().projectRevision
       const saved = await window.autoCut.saveProjectAs(currentProjectFile())
       if (!saved) return false
-      markSaved(saved)
+      markSaved(saved, savedRevision)
       setMessage('Project saved as a new copy')
       await refreshRecent()
       return true
@@ -183,6 +202,7 @@ export function useProjectFiles(): ProjectFileActions {
     save,
     saveAs,
     openRecoveredProject,
+    openRestoredProject,
     chooseAndOpen,
     openRecent,
     removeRecent,
