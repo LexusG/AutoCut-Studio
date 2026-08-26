@@ -954,7 +954,7 @@ export const useAppStore = create<AppState>((rawSet) => {
       ...state.editPlan, captionMode: captions.mode, subtitleOutput: captions.subtitleOutput,
       captionStyle: structuredClone(captions.style), captionSafeArea: captions.safeAreaPreset,
       captionHighlightSpokenWord: captions.highlightSpokenWord, captionHighlightBehavior: captions.highlightBehavior,
-      captionAnimation: captions.animation,
+      captionAnimation: captions.animation, captionWordDisplay: captions.wordDisplay,
       captionTrack: null, revision: state.editPlan.revision + 1
     } : null,
     projectDirty: true, previewOutdated: Boolean(state.previewResult),
@@ -974,6 +974,7 @@ export const useAppStore = create<AppState>((rawSet) => {
       captionHighlightSpokenWord: state.projectSettings.captions.highlightSpokenWord,
       captionHighlightBehavior: state.projectSettings.captions.highlightBehavior,
       captionAnimation: state.projectSettings.captions.animation,
+      captionWordDisplay: state.projectSettings.captions.wordDisplay,
       transcriptVersion: Math.max(0, ...state.transcripts.map((transcript) => transcript.revision)),
       transcriptEditRevision: state.transcriptEditRevision,
       revision: state.editPlan.revision + 1

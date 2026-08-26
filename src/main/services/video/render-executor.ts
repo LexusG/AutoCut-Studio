@@ -387,7 +387,8 @@ export async function executeRender(options: ExecuteRenderOptions): Promise<{
       options.plan.output.height,
       options.plan.captionMode === 'dynamic' && options.plan.captionHighlightSpokenWord,
       options.plan.captionHighlightBehavior,
-      options.plan.captionAnimation
+      options.plan.captionAnimation,
+      options.plan.captionWordDisplay
     ), 'utf8')
   }
   const runComposition = async (ducking: boolean): Promise<void> => {

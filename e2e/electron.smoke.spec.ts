@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { PROJECT_SCHEMA_VERSION } from '../src/shared/utils/migrations'
 
 const execFileAsync = promisify(execFile)
 
@@ -489,6 +490,17 @@ test('completes the Phase 7 local transcript caption and text editing workflow',
     await captionSelects.nth(2).selectOption('highlight')
     await captionSelects.nth(6).selectOption('instagram-reel')
     await page.getByLabel('Safe Area Overlay').check()
+    // Social caption effects have to survive the frozen-plan IPC validation on render.
+    // These are set before generation because changing caption settings clears the track.
+    await page.getByLabel('Animation').selectOption('bounce')
+    await page.getByLabel('Word emphasis').selectOption('karaoke-fill')
+    // Karaoke fill times itself from its own fill tags, so word reveal no longer applies.
+    await expect(page.getByLabel('Word reveal')).toBeDisabled()
+    await page.getByLabel('Word emphasis').selectOption('box-pop')
+    await expect(page.getByLabel('Word reveal')).toBeEnabled()
+    await page.getByLabel('Word reveal').selectOption('cumulative')
+    await expect(page.getByLabel('Animation')).toHaveValue('bounce')
+    await expect(page.getByLabel('Word reveal')).toHaveValue('cumulative')
     await page.getByRole('button', { name: 'Generate Captions' }).click()
     await expect(page.locator('.caption-inspector-item').first()).toBeVisible()
     await expect(page.locator('.caption-ready')).toContainText('Preview ready')
@@ -549,7 +561,7 @@ test('completes the Phase 7 local transcript caption and text editing workflow',
       textEdits: unknown[]
       editPlan: { captionTrack: { chunks: Array<{ text: string }> }; captionMode: string; transcriptEditRevision: number }
     }
-    expect(saved.version).toBe(8)
+    expect(saved.version).toBe(PROJECT_SCHEMA_VERSION)
     expect(saved.transcriptReferences).toHaveLength(5)
     expect(saved.transcriptCorrections).not.toHaveLength(0)
     expect(saved.textEdits.length).toBeGreaterThanOrEqual(1)

@@ -1,7 +1,35 @@
 import { useEffect, useRef, useState } from 'react'
 import { Clapperboard, Eye, Film, MonitorPlay } from 'lucide-react'
+import type { CaptionHighlight } from '@shared/types'
 import { useAppStore } from '../stores/app-store'
 import { formatDuration, formatFileSize, formatFrameRate } from '../utils/format'
+
+/**
+ * Preview styling for the word currently being spoken.
+ *
+ * Mirrors the ASS override tags `serializeAss` emits so the preview and the burned-in
+ * render agree on what each emphasis mode looks like.
+ */
+function emphasisStyle(behavior: CaptionHighlight, highlightColor: string): React.CSSProperties {
+  switch (behavior) {
+    case 'bold':
+      return { fontWeight: 900 }
+    case 'scale':
+      return { fontWeight: 800, display: 'inline-block', transform: 'scale(1.1)' }
+    case 'background':
+      return { color: highlightColor, fontWeight: 800, textShadow: `0 0 6px ${highlightColor}` }
+    case 'box-pop':
+      return { background: highlightColor, color: '#111318', fontWeight: 900, padding: '0 .16em', borderRadius: '.14em' }
+    case 'glow':
+      return { color: highlightColor, fontWeight: 800, textShadow: `0 0 12px ${highlightColor}, 0 0 26px ${highlightColor}` }
+    case 'underline':
+      return { color: highlightColor, textDecoration: 'underline', textDecorationThickness: '.09em' }
+    case 'karaoke-fill':
+      return { color: highlightColor, fontWeight: 800 }
+    default:
+      return { color: highlightColor, fontWeight: 800 }
+  }
+}
 
 export function PreviewPanel(): React.JSX.Element {
   const stageRef = useRef<HTMLDivElement>(null)
@@ -58,10 +86,19 @@ export function PreviewPanel(): React.JSX.Element {
   const transcript = transcripts.find((item) => item.sourceClipId === selectedClip?.id)
   const activeWordIndex = transcript?.words.findIndex((word) => sourceTime >= word.start && sourceTime <= word.end) ?? -1
   const activeSegment = transcript?.segments.find((segment) => sourceTime >= segment.start && sourceTime <= segment.end)
-  const previewWords = captions.mode === 'dynamic' && transcript && activeWordIndex >= 0
-    ? transcript.words.slice(Math.max(0, activeWordIndex - 2), activeWordIndex + 3)
+  const dynamicWindow = captions.mode === 'dynamic' && transcript && activeWordIndex >= 0
+    ? { words: transcript.words.slice(Math.max(0, activeWordIndex - 2), activeWordIndex + 3), active: activeWordIndex - Math.max(0, activeWordIndex - 2) }
+    : null
+  // The burned-in captions reveal words progressively, so the preview mirrors that window.
+  const previewWords = dynamicWindow
+    ? captions.wordDisplay === 'single'
+      ? dynamicWindow.words.slice(dynamicWindow.active, dynamicWindow.active + 1)
+      : captions.wordDisplay === 'cumulative'
+        ? dynamicWindow.words.slice(0, dynamicWindow.active + 1)
+        : dynamicWindow.words
     : activeSegment?.words ?? []
   const captionText = previewWords.length ? previewWords : activeSegment?.text ? [{ id: 'segment', text: activeSegment.text }] : []
+  const activeWordId = dynamicWindow ? dynamicWindow.words[dynamicWindow.active]?.id ?? null : null
 
   return (
     <section className="preview-panel" aria-label="Source preview">
@@ -113,7 +150,8 @@ export function PreviewPanel(): React.JSX.Element {
           {captions.safeAreaVisible && <div className={`safe-area-overlay safe-area-${captions.safeAreaPreset}`} aria-hidden="true"><span /></div>}
           {captions.mode !== 'off' && captionText.length > 0 && (
             <div
-              className={`caption-preview caption-position-${captions.style.position}`}
+              key={captions.animation === 'none' ? 'static' : activeWordId ?? activeSegment?.id ?? 'static'}
+              className={`caption-preview caption-position-${captions.style.position} caption-animation-${captions.animation}`}
               style={{
                 color: captions.style.textColor,
                 fontFamily: captions.style.fontFamily,
@@ -126,7 +164,18 @@ export function PreviewPanel(): React.JSX.Element {
                 boxShadow: captions.style.shadow ? '0 2px 8px rgba(0,0,0,.5)' : undefined
               }}
             >
-              {captionText.map((word, index) => <span key={word.id} style={captions.highlightSpokenWord && 'start' in word && sourceTime >= word.start && sourceTime <= word.end ? { color: captions.style.highlightColor, fontWeight: 800 } : undefined}>{word.text}{index < captionText.length - 1 ? ' ' : ''}</span>)}
+              {captionText.map((word, index) => {
+                const active = captions.highlightSpokenWord && 'start' in word && sourceTime >= word.start && sourceTime <= word.end
+                // The separator stays outside the span so an emphasis box hugs the word.
+                return (
+                  <span key={word.id}>
+                    <span
+                      className={active ? `caption-word-active caption-emphasis-${captions.highlightBehavior}` : undefined}
+                      style={active ? emphasisStyle(captions.highlightBehavior, captions.style.highlightColor) : undefined}
+                    >{word.text}</span>{index < captionText.length - 1 ? ' ' : ''}
+                  </span>
+                )
+              })}
             </div>
           )}
           <span className="preview-canvas-label">

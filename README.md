@@ -15,7 +15,8 @@ All footage remains on the local computer. Electron owns filesystem access and F
 - Speaker-aware transcripts and captions with manual rename, merge, split, filtering, preview, and restrained caption accents
 - Low-confidence review with context playback, persistent corrections, user vocabulary prompting, exact replace-all, and undo
 - Sequential batch transcription with scope filters, VAD no-speech skipping, pause/resume, cancellation, cache status, and retry-failed controls
-- Seven protected built-in caption templates plus persisted custom save, rename, duplicate, delete, preview, and platform recommendations
+- Eleven protected built-in caption templates plus persisted custom save, rename, duplicate, delete, preview, and platform recommendations
+- Social caption effects: bounce, slide-up, zoom-punch, and blur-in entrances, box-pop, neon-glow, underline, and true karaoke-fill word emphasis, and cumulative or one-word-at-a-time word reveal
 - Speaker-filtered semantic search, related-section multi-select, semantic collections, and independent custom output variants
 - Native multi-file picker and desktop drag-and-drop import
 - MP4, MOV, MKV, WebM, AVI, and M4V validation

@@ -323,8 +323,9 @@ function isRenderPlan(value: unknown): value is RenderPlan {
     ['none', 'burned-in', 'file-only', 'burned-in-and-file'].includes(plan.subtitleOutput ?? '') &&
     Boolean(plan.captionStyle) &&
     typeof plan.captionHighlightSpokenWord === 'boolean' &&
-    ['bold', 'scale', 'color', 'background'].includes(plan.captionHighlightBehavior ?? '') &&
-    ['none', 'fade', 'pop'].includes(plan.captionAnimation ?? '') &&
+    ['bold', 'scale', 'color', 'background', 'karaoke-fill', 'glow', 'underline', 'box-pop'].includes(plan.captionHighlightBehavior ?? '') &&
+    ['none', 'fade', 'pop', 'bounce', 'slide-up', 'zoom-punch', 'blur-in'].includes(plan.captionAnimation ?? '') &&
+    ['full', 'cumulative', 'single'].includes(plan.captionWordDisplay ?? '') &&
     Number.isInteger(plan.transcriptVersion) &&
     Number.isInteger(plan.transcriptEditRevision) &&
     typeof plan.editGoal === 'string' &&

@@ -71,7 +71,8 @@ export function VersionsPanel(): React.JSX.Element {
         captionSafeArea: variant.captionSettings.safeAreaPreset,
         captionHighlightSpokenWord: variant.captionSettings.highlightSpokenWord,
         captionHighlightBehavior: variant.captionSettings.highlightBehavior,
-        captionAnimation: variant.captionSettings.animation
+        captionAnimation: variant.captionSettings.animation,
+        captionWordDisplay: variant.captionSettings.wordDisplay
       }
     }
     updateVariant(variant.id, { renderPlan: plan, previewStatus: 'idle', approval: 'needs-changes' })

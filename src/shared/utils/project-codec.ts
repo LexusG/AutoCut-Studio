@@ -146,6 +146,7 @@ function hydrateRenderPlan(value: unknown): RenderPlan | null {
     captionHighlightSpokenWord: raw.captionHighlightSpokenWord ?? true,
     captionHighlightBehavior: raw.captionHighlightBehavior ?? 'color',
     captionAnimation: raw.captionAnimation ?? 'none',
+    captionWordDisplay: raw.captionWordDisplay ?? 'full',
     transcriptVersion: raw.transcriptVersion ?? 0,
     transcriptEditRevision: raw.transcriptEditRevision ?? 0,
     editGoal: raw.editGoal ?? '',

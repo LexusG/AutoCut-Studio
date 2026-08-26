@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { execFile } from 'node:child_process'
 import { _electron as electron, expect, test, type Page } from '@playwright/test'
+import { PROJECT_SCHEMA_VERSION } from '../src/shared/utils/migrations'
 
 const execFileAsync = promisify(execFile)
 const media = (process.env.AUTOCUT_PHASE9_MEDIA ?? '').split(':').filter(Boolean)
@@ -103,7 +104,7 @@ test('packaged Phase 9 speaker and transcript workflow', async () => {
     await page.getByRole('button', { name: 'Back to Edit' }).first().click()
     await page.getByRole('button', { name: 'Save Project', exact: true }).click()
     const saved = JSON.parse(await readFile(projectPath, 'utf8')) as { version: number; speakerLabels: unknown[]; confidenceReviews: unknown[] }
-    expect(saved.version).toBe(8); expect(saved.speakerLabels.length).toBeGreaterThan(0); expect((await stat(exportPath)).size).toBeGreaterThan(20_000)
+    expect(saved.version).toBe(PROJECT_SCHEMA_VERSION); expect(saved.speakerLabels.length).toBeGreaterThan(0); expect((await stat(exportPath)).size).toBeGreaterThan(20_000)
 
     await page.getByRole('button', { name: 'Back to Home' }).click(); await app.close()
     app = await electron.launch({ executablePath: executable, args: [`--user-data-dir=${userData}`], env: environment })

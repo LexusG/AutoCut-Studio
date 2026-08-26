@@ -273,6 +273,7 @@ export function buildRenderPlan(
     captionHighlightSpokenWord: settings.captions.highlightSpokenWord,
     captionHighlightBehavior: settings.captions.highlightBehavior,
     captionAnimation: settings.captions.animation,
+    captionWordDisplay: settings.captions.wordDisplay,
     transcriptVersion: 0,
     transcriptEditRevision: 0,
     editGoal: settings.semantic.editGoal,
