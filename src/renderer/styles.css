@@ -2945,6 +2945,42 @@ code {
 .caption-position-lower-middle { bottom: 24%; }
 .caption-position-bottom { bottom: 7%; }
 
+/*
+ * Preview counterparts to the ASS entrance tags burned in at render time.
+ *
+ * `--caption-ty` carries the vertical half-offset that centred captions need, so the
+ * scaling keyframes below can animate without dropping the centring translate.
+ */
+.caption-preview { --caption-ty: 0%; }
+.caption-position-center { --caption-ty: -50%; }
+.caption-animation-fade { animation: caption-fade .12s ease-out both; }
+.caption-animation-pop { animation: caption-pop .12s ease-out both; }
+.caption-animation-bounce { animation: caption-bounce .17s cubic-bezier(.34, 1.56, .64, 1) both; }
+.caption-animation-zoom-punch { animation: caption-zoom-punch .11s ease-out both; }
+.caption-animation-blur-in { animation: caption-blur-in .17s ease-out both; }
+.caption-animation-slide-up { animation: caption-slide-up .17s ease-out both; }
+.caption-word-active { display: inline-block; }
+
+@keyframes caption-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes caption-pop {
+  from { transform: translate(-50%, var(--caption-ty)) scale(.85); }
+  to { transform: translate(-50%, var(--caption-ty)) scale(1); }
+}
+@keyframes caption-bounce {
+  0% { transform: translate(-50%, var(--caption-ty)) scale(.55); }
+  55% { transform: translate(-50%, var(--caption-ty)) scale(1.12); }
+  100% { transform: translate(-50%, var(--caption-ty)) scale(1); }
+}
+@keyframes caption-zoom-punch {
+  from { opacity: .4; transform: translate(-50%, var(--caption-ty)) scale(1.45); }
+  to { opacity: 1; transform: translate(-50%, var(--caption-ty)) scale(1); }
+}
+@keyframes caption-blur-in { from { opacity: .35; filter: blur(7px); } to { opacity: 1; filter: blur(0); } }
+@keyframes caption-slide-up {
+  from { opacity: 0; transform: translate(-50%, calc(var(--caption-ty) + 22%)); }
+  to { opacity: 1; transform: translate(-50%, var(--caption-ty)); }
+}
+
 .semantic-layout { display: grid; min-height: 0; grid-template-columns: 270px minmax(420px, 1fr) 230px; }
 .semantic-controls,
 .semantic-status-panel,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { CaptionWord, RenderPlan, Transcript } from '../src/shared/types'
 import { DEFAULT_RENDER_SETTINGS } from '../src/shared/types'
 import { buildRenderPlan } from '../src/main/services/video/render-planner'
+import { BUILT_IN_CAPTION_TEMPLATES } from '../src/shared/constants/caption-templates'
 import { chunkCaptionWords } from '../src/main/services/captions/caption-chunker'
 import { buildCaptionTrack } from '../src/main/services/captions/caption-track-builder'
 import { serializeAss, serializeSrt, serializeVtt } from '../src/main/services/captions/subtitle-exporter'
@@ -102,6 +103,106 @@ describe('Phase 7 transcription and captions', () => {
     expect(ass).toContain('Dialogue:')
     expect(ass).toContain('\\fad(120,0)')
     expect(ass).toContain('Hello')
+  })
+
+  it('emits entrance tags for each caption animation', () => {
+    const track = chunkCaptionWords([{ id: 'a', text: 'Hello', start: 0, end: 0.4 }], 'standard')
+    const style = DEFAULT_RENDER_SETTINGS.captions.style
+    expect(serializeAss(track, style, 1080, 1920, false, 'color', 'bounce')).toContain('\\t(90,170,\\fscx100\\fscy100)')
+    expect(serializeAss(track, style, 1080, 1920, false, 'color', 'zoom-punch')).toContain('\\fscx145\\fscy145')
+    expect(serializeAss(track, style, 1080, 1920, false, 'color', 'blur-in')).toContain('\\blur8')
+  })
+
+  it('anchors slide-up motion to the position the style would have produced', () => {
+    const track = chunkCaptionWords([{ id: 'a', text: 'Hello', start: 0, end: 0.4 }], 'standard')
+    const style = { ...DEFAULT_RENDER_SETTINGS.captions.style, position: 'bottom' as const, alignment: 'center' as const, verticalOffset: 10 }
+    const ass = serializeAss(track, style, 1080, 1920, false, 'color', 'slide-up')
+    // marginV is 10% of 1920, so a bottom-centred caption sits at y = 1920 - 192.
+    expect(ass).toContain('\\an2\\move(540,1843,540,1728,0,170)')
+  })
+
+  it('resolves the slide-up anchor for every position and alignment pairing', () => {
+    const track = chunkCaptionWords([{ id: 'a', text: 'Hello', start: 0, end: 0.4 }], 'standard')
+    // marginH is 8% of 1080, marginV is 8% of 1920, and slide-up travels 6% of the height.
+    const expected: Record<string, string> = {
+      'top|left': '\\an7\\move(86,269,86,154,0,170)',
+      'top|center': '\\an8\\move(540,269,540,154,0,170)',
+      'top|right': '\\an9\\move(994,269,994,154,0,170)',
+      'center|left': '\\an4\\move(86,1075,86,960,0,170)',
+      'center|center': '\\an5\\move(540,1075,540,960,0,170)',
+      'center|right': '\\an6\\move(994,1075,994,960,0,170)',
+      'bottom|left': '\\an1\\move(86,1881,86,1766,0,170)',
+      'bottom|center': '\\an2\\move(540,1881,540,1766,0,170)',
+      'bottom|right': '\\an3\\move(994,1881,994,1766,0,170)'
+    }
+    for (const position of ['top', 'center', 'bottom'] as const) {
+      for (const alignment of ['left', 'center', 'right'] as const) {
+        const style = { ...DEFAULT_RENDER_SETTINGS.captions.style, position, alignment }
+        expect(serializeAss(track, style, 1080, 1920, false, 'color', 'slide-up'))
+          .toContain(expected[`${position}|${alignment}`])
+      }
+    }
+  })
+
+  it('ships every built-in template with a caption configuration the renderer accepts', () => {
+    const track = chunkCaptionWords([
+      { id: 'a', text: 'This', start: 0, end: 0.4 },
+      { id: 'b', text: 'changes', start: 0.4, end: 0.9 }
+    ], 'dynamic')
+    for (const template of BUILT_IN_CAPTION_TEMPLATES) {
+      const settings = template.settings
+      const ass = serializeAss(
+        track, settings.style, 1080, 1920,
+        settings.highlightSpokenWord, settings.highlightBehavior, settings.animation, settings.wordDisplay
+      )
+      expect(ass, template.id).toContain('[Events]')
+      expect(ass.split('\n').filter((line) => line.startsWith('Dialogue:')).length, template.id).toBeGreaterThan(0)
+      // Unbalanced override braces would make libass drop the line entirely.
+      const braces = ass.split('\n').filter((line) => line.startsWith('Dialogue:')).join('')
+      expect(braces.split('{').length, template.id).toBe(braces.split('}').length)
+    }
+  })
+
+  it('emphasises the spoken word differently per highlight behaviour', () => {
+    const track = chunkCaptionWords([
+      { id: 'a', text: 'Hello', start: 0, end: 0.4 },
+      { id: 'b', text: 'world', start: 0.4, end: 0.9 }
+    ], 'dynamic')
+    const style = DEFAULT_RENDER_SETTINGS.captions.style
+    expect(serializeAss(track, style, 1080, 1920, true, 'glow')).toContain('\\blur10')
+    expect(serializeAss(track, style, 1080, 1920, true, 'underline')).toContain('\\u1')
+    expect(serializeAss(track, style, 1080, 1920, true, 'box-pop')).toContain('\\bord9')
+  })
+
+  it('collapses a karaoke fill chunk into one event with per-word timings', () => {
+    const track = chunkCaptionWords([
+      { id: 'a', text: 'Hello', start: 0, end: 0.4 },
+      { id: 'b', text: 'world', start: 0.4, end: 0.9 }
+    ], 'dynamic')
+    const ass = serializeAss(track, DEFAULT_RENDER_SETTINGS.captions.style, 1080, 1920, true, 'karaoke-fill')
+    const dialogue = ass.split('\n').filter((line) => line.startsWith('Dialogue:'))
+    expect(dialogue).toHaveLength(1)
+    expect(dialogue[0]).toContain('\\kf40}Hello')
+    expect(dialogue[0]).toContain('\\kf50}world')
+  })
+
+  it('reveals words progressively for cumulative and single word display', () => {
+    const words = [
+      { id: 'a', text: 'Hello', start: 0, end: 0.4 },
+      { id: 'b', text: 'world', start: 0.4, end: 0.9 }
+    ]
+    const track = chunkCaptionWords(words, 'dynamic')
+    const style = DEFAULT_RENDER_SETTINGS.captions.style
+    const cumulative = serializeAss(track, style, 1080, 1920, true, 'color', 'none', 'cumulative')
+      .split('\n').filter((line) => line.startsWith('Dialogue:'))
+    expect(cumulative[0]).not.toContain('world')
+    expect(cumulative[1]).toContain('Hello')
+    expect(cumulative[1]).toContain('world')
+
+    const single = serializeAss(track, style, 1080, 1920, true, 'color', 'none', 'single')
+      .split('\n').filter((line) => line.startsWith('Dialogue:'))
+    expect(single[0]).not.toContain('world')
+    expect(single[1]).not.toContain('Hello')
   })
 
   it('marks only conservative filler words and finds long pauses', () => {

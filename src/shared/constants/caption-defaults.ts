@@ -30,5 +30,6 @@ export const DEFAULT_CAPTION_SETTINGS: CaptionSettings = {
   safeAreaVisible: false,
   highlightSpokenWord: true,
   highlightBehavior: 'color',
-  animation: 'none'
+  animation: 'none',
+  wordDisplay: 'full'
 }

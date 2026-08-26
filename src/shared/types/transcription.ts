@@ -162,10 +162,12 @@ export interface TranscriptionResult {
 
 export type CaptionMode = 'off' | 'standard' | 'dynamic'
 export type SubtitleOutput = 'none' | 'burned-in' | 'file-only' | 'burned-in-and-file'
-export type CaptionStylePreset = 'clean' | 'bold' | 'minimal' | 'highlight' | 'social-bold' | 'karaoke' | 'interview' | 'documentary' | 'lower-third'
+export type CaptionStylePreset = 'clean' | 'bold' | 'minimal' | 'highlight' | 'social-bold' | 'karaoke' | 'interview' | 'documentary' | 'lower-third' | 'impact-pop' | 'karaoke-fill' | 'neon-glow' | 'word-pop'
 export type CaptionPosition = 'top' | 'upper-middle' | 'center' | 'lower-middle' | 'bottom'
-export type CaptionAnimation = 'none' | 'fade' | 'pop'
-export type CaptionHighlight = 'bold' | 'scale' | 'color' | 'background'
+export type CaptionAnimation = 'none' | 'fade' | 'pop' | 'bounce' | 'slide-up' | 'zoom-punch' | 'blur-in'
+export type CaptionHighlight = 'bold' | 'scale' | 'color' | 'background' | 'karaoke-fill' | 'glow' | 'underline' | 'box-pop'
+/** Controls how much of a caption chunk is on screen while a word is spoken. */
+export type CaptionWordDisplay = 'full' | 'cumulative' | 'single'
 export type CaptionSafeAreaPreset = 'instagram-reel' | 'instagram-story' | 'youtube-shorts' | 'youtube-standard' | 'linkedin' | 'custom'
 
 export interface CaptionStyle {
@@ -195,6 +197,7 @@ export interface CaptionSettings {
   highlightSpokenWord: boolean
   highlightBehavior: CaptionHighlight
   animation: CaptionAnimation
+  wordDisplay: CaptionWordDisplay
   templateId?: string
   showSpeakerNames?: boolean
 }

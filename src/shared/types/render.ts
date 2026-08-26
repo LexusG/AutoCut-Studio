@@ -319,6 +319,7 @@ export interface RenderPlan {
   captionHighlightSpokenWord: boolean
   captionHighlightBehavior: import('./transcription').CaptionHighlight
   captionAnimation: import('./transcription').CaptionAnimation
+  captionWordDisplay: import('./transcription').CaptionWordDisplay
   transcriptVersion: number
   transcriptEditRevision: number
   editGoal: string
@@ -517,7 +518,7 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
       position: 'bottom', verticalOffset: 8, maximumWidth: 84, lineSpacing: 1
     },
     safeAreaPreset: 'youtube-standard', safeAreaVisible: false,
-    highlightSpokenWord: true, highlightBehavior: 'color', animation: 'none'
+    highlightSpokenWord: true, highlightBehavior: 'color', animation: 'none', wordDisplay: 'full'
   },
   semantic: {
     enabled: true,

@@ -62,7 +62,8 @@ describe('Phase 9 packaged runtime and speaker workflows', () => {
 
   it('provides protected built-in caption templates', () => {
     expect(BUILT_IN_CAPTION_TEMPLATES.map((item) => item.name)).toEqual([
-      'Clean', 'Social Bold', 'Minimal', 'Karaoke Highlight', 'Interview', 'Documentary', 'Lower Third'
+      'Clean', 'Social Bold', 'Minimal', 'Karaoke Highlight', 'Interview', 'Documentary', 'Lower Third',
+      'Impact Pop', 'Karaoke Fill', 'Neon Glow', 'One Word Punch'
     ])
     expect(BUILT_IN_CAPTION_TEMPLATES.every((item) => item.builtIn)).toBe(true)
   })

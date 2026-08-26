@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { PROJECT_SCHEMA_VERSION } from '../src/shared/utils/migrations'
 
 const execFileAsync = promisify(execFile)
 
@@ -191,7 +192,7 @@ test('completes local semantic highlights and multi-format repurposing', async (
       highlightCandidates: unknown[]
       outputVariants: Array<{ approval: string; renderPlan: { variantId: string }; previewHistory: unknown[] }>
     }
-    expect(saved.version).toBe(8)
+    expect(saved.version).toBe(PROJECT_SCHEMA_VERSION)
     expect(saved.semanticAnalysis.chunkCount).toBeGreaterThanOrEqual(6)
     expect(saved.semanticHints).toHaveLength(2)
     expect(saved.highlightCandidates.length).toBeGreaterThanOrEqual(6)
