@@ -1,6 +1,6 @@
 {
   "name": "autocut-studio",
-  "version": "0.1.0",
+  "version": "1.0.0-rc.1",
   "private": true,
   "description": "A local-first Linux desktop app that turns video clips into finished videos.",
   "main": "./out/main/index.js",

@@ -91,7 +91,7 @@ test('packaged Phase 9 speaker and transcript workflow', async () => {
     await expect(page.locator('.caption-ready')).toBeVisible()
     await page.getByRole('button', { name: 'Close Transcript' }).click()
     await app.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, projectPath)
-    await page.getByRole('button', { name: 'Save Project' }).click()
+    await page.getByRole('button', { name: 'Save Project', exact: true }).click()
     await expect.poll(async () => (await stat(projectPath)).size, { timeout: 30_000 }).toBeGreaterThan(1_000)
     await page.getByRole('button', { name: 'Generate Preview' }).click()
     await expectPreview(page)
@@ -101,7 +101,7 @@ test('packaged Phase 9 speaker and transcript workflow', async () => {
     await expect(page.getByRole('heading', { name: 'Export complete', exact: true })).toBeVisible({ timeout: 600_000 })
     await page.getByRole('button', { name: 'View Export Summary' }).click()
     await page.getByRole('button', { name: 'Back to Edit' }).first().click()
-    await page.getByRole('button', { name: 'Save Project' }).click()
+    await page.getByRole('button', { name: 'Save Project', exact: true }).click()
     const saved = JSON.parse(await readFile(projectPath, 'utf8')) as { version: number; speakerLabels: unknown[]; confidenceReviews: unknown[] }
     expect(saved.version).toBe(8); expect(saved.speakerLabels.length).toBeGreaterThan(0); expect((await stat(exportPath)).size).toBeGreaterThan(20_000)
 

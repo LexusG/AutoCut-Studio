@@ -183,7 +183,7 @@ test('completes local semantic highlights and multi-format repurposing', async (
 
     await page.getByRole('button', { name: 'Close Transcript' }).click()
     await app.evaluate(({ dialog }, path) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: path }) }, projectPath)
-    await page.getByRole('button', { name: 'Save Project' }).click()
+    await page.getByRole('button', { name: 'Save Project', exact: true }).click()
     const saved = JSON.parse(await readFile(projectPath, 'utf8')) as {
       version: number
       semanticAnalysis: { chunkCount: number; topicCount: number }

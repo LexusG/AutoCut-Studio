@@ -29,10 +29,14 @@ function positiveNumber(value: string | undefined): number | null {
 }
 
 function errorResult(error: unknown): AudioImportResult {
+  // Same reasoning as the video importer: keep the bundled binary's path and exit code
+  // out of the user-facing line and put it in the expandable details.
   return {
     track: null,
-    error: error instanceof Error ? error.message : 'The audio file could not be imported.',
-    details: error instanceof ProcessExecutionError ? error.details : undefined
+    error: error instanceof ProcessExecutionError
+      ? 'This file could not be read as audio. It may be corrupt or in an unsupported format.'
+      : error instanceof Error ? error.message : 'The audio file could not be imported.',
+    details: error instanceof ProcessExecutionError ? `${error.message}\n${error.details}` : undefined
   }
 }
 
