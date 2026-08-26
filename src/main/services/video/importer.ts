@@ -16,12 +16,20 @@ function createClipId(filePath: string, size: number, modifiedAt: number): strin
 }
 
 function failureFor(filePath: string, error: unknown): ImportFailure {
-  const message = error instanceof Error ? error.message : 'The video could not be imported.'
+  // A failed FFprobe run reports the absolute path of the bundled binary and its exit
+  // code. That is useful for diagnosis but meaningless to a user, and the summary line
+  // is always visible, so the raw text belongs in the expandable details instead.
+  const message = error instanceof ProcessExecutionError
+    ? 'This file could not be read as video. It may be corrupt or in an unsupported format.'
+    : error instanceof Error ? error.message : 'The video could not be imported.'
+  const details = error instanceof ProcessExecutionError
+    ? `${error.message}\n${error.details}`
+    : undefined
   return {
     path: filePath,
     filename: basename(filePath) || 'Unknown file',
     message,
-    details: error instanceof ProcessExecutionError ? error.details : undefined
+    details
   }
 }
 
