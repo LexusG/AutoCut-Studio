@@ -101,7 +101,9 @@ function CaptionInspector({ chunks }: { chunks: CaptionChunk[] }): React.JSX.Ele
   )
 }
 
-export function TranscriptPanel({ open, close }: { open: boolean; close: () => void }): React.JSX.Element | null {
+export type WorkspaceTab = 'transcript' | 'queue' | 'speakers' | 'review' | 'captions' | 'semantic' | 'collections' | 'topics' | 'highlights' | 'versions'
+
+export function TranscriptPanel({ open, close, initialTab = 'transcript' }: { open: boolean; close: () => void; initialTab?: WorkspaceTab }): React.JSX.Element | null {
   const clips = useAppStore((state) => state.clips)
   const selectedClipId = useAppStore((state) => state.selectedClipId)
   const projectId = useAppStore((state) => state.projectId)
@@ -129,7 +131,7 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
   const addSemanticHint = useAppStore((state) => state.addSemanticHint)
   const speakerLabels = useAppStore((state) => state.speakerLabels)
   const userVocabulary = useAppStore((state) => state.userVocabulary)
-  const [tab, setTab] = useState<'transcript' | 'queue' | 'speakers' | 'review' | 'captions' | 'semantic' | 'collections' | 'topics' | 'highlights' | 'versions'>('transcript')
+  const [tab, setTab] = useState<WorkspaceTab>(initialTab)
   const [scope, setScope] = useState<TranscriptionScope>('all-clips')
   const [query, setQuery] = useState('')
   const [editingWord, setEditingWord] = useState<string | null>(null)
@@ -138,6 +140,12 @@ export function TranscriptPanel({ open, close }: { open: boolean; close: () => v
   const [playback, setPlayback] = useState<{ clipId: string; time: number } | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [speakerFilter, setSpeakerFilter] = useState('all')
+
+  // Reopening from an assistant suggestion has to land on the tab it named, and the
+  // panel stays mounted while closed, so the tab is re-synced on each open.
+  useEffect(() => {
+    if (open) setTab(initialTab)
+  }, [open, initialTab])
 
   useEffect(() => {
     if (!open) return

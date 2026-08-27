@@ -97,7 +97,7 @@ export function SettingsPanel(): React.JSX.Element {
       </div>
 
       <div className="settings-scroll">
-        <PlatformPresetSelector />
+        <div data-tutorial-id="platform-selector"><PlatformPresetSelector /></div>
 
         <details className="settings-details" open>
           <summary><Video size={14} /> Video Settings <ChevronDown size={13} /></summary>

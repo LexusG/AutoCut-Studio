@@ -8,6 +8,25 @@ import { PROJECT_SCHEMA_VERSION } from '../src/shared/utils/migrations'
 
 const execFileAsync = promisify(execFile)
 
+/**
+ * Waits for a project save to reach disk.
+ *
+ * Saving is asynchronous, so reading straight after the click races the write and
+ * fails intermittently under load.
+ */
+async function waitForFile(path: string, timeout = 30_000): Promise<void> {
+  const deadline = Date.now() + timeout
+  for (;;) {
+    try {
+      await access(path)
+      return
+    } catch {
+      if (Date.now() > deadline) throw new Error(`Timed out waiting for ${path}`)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+}
+
 async function createVideo(
   path: string,
   source: string,
@@ -554,6 +573,7 @@ test('completes the Phase 7 local transcript caption and text editing workflow',
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: selectedPath })
     }, projectPath)
     await page.getByRole('button', { name: 'Save Project', exact: true }).click()
+    await waitForFile(projectPath)
     const saved = JSON.parse(await readFile(projectPath, 'utf8')) as {
       version: number
       transcriptReferences: unknown[]

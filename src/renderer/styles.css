@@ -939,6 +939,73 @@ code {
   grid-template-columns: minmax(320px, 350px) minmax(400px, 1fr) 340px;
 }
 
+/*
+ * Right rail: the assistant leads, professional controls sit one tab away.
+ *
+ * Progressive disclosure is the point. A new user sees what the analysis found and
+ * what to do about it; the full settings surface stays available without competing
+ * for attention on first open.
+ */
+.editor-rail { display: flex; min-width: 0; flex-direction: column; border-left: 1px solid #2b2e32; background: #151719; }
+.rail-tabs { display: grid; flex: none; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #2b2e32; }
+.rail-tab {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 10px 8px; border: 0; border-bottom: 2px solid transparent;
+  background: transparent; color: #8b9199; font-size: 12px; font-weight: 600;
+  letter-spacing: .01em; cursor: pointer; transition: color .12s ease, border-color .12s ease;
+}
+.rail-tab:hover { color: #d6dae0; }
+.rail-tab-active { border-bottom-color: #2dd4bf; color: #f2f4f7; }
+.rail-body { min-height: 0; flex: 1; overflow-y: auto; }
+.rail-body > .settings-panel { width: 100%; border-left: 0; }
+
+.assistant-panel { display: flex; flex-direction: column; padding: 14px; gap: 10px; }
+.assistant-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.assistant-title { display: flex; align-items: center; gap: 7px; color: #f2f4f7; }
+.assistant-title h2 { margin: 0; font-size: 13px; font-weight: 650; letter-spacing: .01em; }
+.assistant-title svg { color: #2dd4bf; }
+.assistant-count {
+  min-width: 20px; padding: 1px 6px; border-radius: 9px; background: #22262b;
+  color: #a9b0b8; font-size: 11px; font-weight: 700; text-align: center;
+}
+.assistant-count-attention { background: #4a2f1c; color: #f0a868; }
+.assistant-status { margin: 0; flex: 1; color: #8b9199; font-size: 12px; line-height: 1.45; }
+
+.assistant-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 26px 14px; border: 1px dashed #2f3338; border-radius: 6px; text-align: center;
+}
+.assistant-empty svg { color: #4f8a5b; }
+.assistant-empty strong { color: #d6dae0; font-size: 12.5px; }
+.assistant-empty span { color: #7d838b; font-size: 11.5px; line-height: 1.45; }
+
+.assistant-list { display: flex; flex-direction: column; margin: 0; padding: 0; gap: 6px; list-style: none; }
+.assistant-item { overflow: hidden; border: 1px solid #2b2e32; border-radius: 6px; background: #191c1f; }
+.assistant-item:hover { border-color: #383d43; }
+.assistant-attention { border-left: 2px solid #d98b3f; }
+.assistant-opportunity { border-left: 2px solid #2dd4bf; }
+.assistant-item-head {
+  display: flex; width: 100%; align-items: flex-start; gap: 9px;
+  padding: 9px 10px; border: 0; background: transparent; cursor: pointer; text-align: left;
+}
+.assistant-item-icon { display: flex; flex: none; padding-top: 1px; color: #8b9199; }
+.assistant-item-text { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.assistant-item-text strong { color: #eef0f3; font-size: 12.5px; font-weight: 600; line-height: 1.3; }
+.assistant-item-text span { color: #82888f; font-size: 11.5px; line-height: 1.35; }
+.assistant-chevron { flex: none; margin-top: 2px; color: #6a7077; transition: transform .14s ease; }
+.assistant-chevron-open { transform: rotate(180deg); }
+.assistant-item-body { padding: 0 10px 10px 34px; }
+.assistant-item-body p { margin: 0 0 9px; color: #9aa1a9; font-size: 11.5px; line-height: 1.5; }
+.assistant-item-actions { display: flex; gap: 6px; }
+.assistant-item-actions .button { padding: 5px 10px; font-size: 11.5px; }
+
+.assistant-restore {
+  padding: 6px; border: 0; background: transparent; color: #6a7077;
+  font-size: 11.5px; cursor: pointer;
+}
+.assistant-restore:hover { color: #a9b0b8; }
+
+
 .media-panel {
   display: grid;
   min-height: 0;
@@ -3484,3 +3551,88 @@ code {
   font-size: 10px;
   color: #6f7178;
 }
+
+/* Header actions stay on one line; chores group tightly, decisions stay prominent. */
+.editor-header-right { flex-wrap: nowrap; }
+.editor-header-right .button { white-space: nowrap; }
+.header-group { display: flex; align-items: center; gap: 2px; }
+.rail-tab-count {
+  min-width: 16px; padding: 0 5px; border-radius: 8px; background: #2dd4bf;
+  color: #062c28; font-size: 10px; font-weight: 700;
+}
+
+/*
+ * Tutorial coach marks.
+ *
+ * Sits at 120, above the render overlay's 100 ceiling. The dimming comes from a huge
+ * spread shadow around the spotlight rather than a full scrim: two existing overlays
+ * start below the header on purpose, and most tutorial targets live in it, so a scrim
+ * would cover the controls being pointed at.
+ */
+.tutorial-layer { position: fixed; z-index: 120; inset: 0; pointer-events: none; }
+.tutorial-spotlight {
+  position: fixed; border: 1.5px solid #2dd4bf; border-radius: 7px;
+  box-shadow: 0 0 0 9999px rgba(6, 10, 14, .72), 0 0 18px rgba(45, 212, 191, .35);
+  pointer-events: none; transition: top .16s ease, left .16s ease, width .16s ease, height .16s ease;
+}
+.tutorial-scrim { position: fixed; inset: 0; background: rgba(6, 10, 14, .72); }
+.tutorial-card {
+  position: fixed; width: 360px; padding: 14px; border: 1px solid #383d43;
+  border-radius: 8px; background: #1b1e22; box-shadow: 0 18px 40px rgba(0, 0, 0, .5);
+  pointer-events: auto;
+}
+.tutorial-card-centred { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.tutorial-card header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.tutorial-progress { display: flex; align-items: center; gap: 6px; color: #2dd4bf; font-size: 11px; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; }
+.tutorial-card h3 { margin: 0 0 6px; color: #f2f4f7; font-size: 14.5px; font-weight: 650; }
+.tutorial-card p { margin: 0 0 12px; color: #a9b0b8; font-size: 12.5px; line-height: 1.5; }
+.tutorial-waiting { color: #f0a868 !important; font-size: 12px !important; }
+.tutorial-card footer { display: flex; align-items: center; justify-content: space-between; }
+.tutorial-nav { display: flex; gap: 6px; }
+.tutorial-card .button { padding: 6px 12px; font-size: 12px; }
+
+/* Help browser: the route in when you do not know what to do next. */
+.help-overlay {
+  position: fixed; z-index: 110; display: flex; align-items: center; justify-content: center;
+  padding: 32px; background: rgba(6, 10, 14, .66); inset: 0;
+}
+.help-panel {
+  display: flex; width: min(760px, 100%); max-height: 100%; flex-direction: column;
+  border: 1px solid #2f3338; border-radius: 10px; background: #151719;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .55);
+}
+.help-header { display: flex; flex: none; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid #2b2e32; }
+.help-title { display: flex; align-items: center; gap: 9px; color: #f2f4f7; }
+.help-title svg { color: #2dd4bf; }
+.help-title h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.help-search { display: flex; flex: none; align-items: center; gap: 8px; padding: 10px 18px; border-bottom: 1px solid #2b2e32; color: #6a7077; }
+.help-search input { width: 100%; border: 0; background: transparent; color: #e6e9ed; font-size: 13px; outline: none; }
+.help-body { min-height: 0; flex: 1; padding: 14px 18px 18px; overflow-y: auto; }
+
+.help-start-here {
+  display: flex; width: 100%; flex-direction: column; align-items: flex-start; gap: 4px;
+  margin-bottom: 18px; padding: 14px; border: 1px solid #2dd4bf; border-radius: 8px;
+  background: linear-gradient(180deg, rgba(45, 212, 191, .1), rgba(45, 212, 191, .03));
+  cursor: pointer; text-align: left;
+}
+.help-start-here:hover { background: linear-gradient(180deg, rgba(45, 212, 191, .16), rgba(45, 212, 191, .05)); }
+.help-start-label { color: #2dd4bf; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.help-start-here strong { color: #f2f4f7; font-size: 15px; font-weight: 650; }
+.help-start-summary { color: #9aa1a9; font-size: 12.5px; line-height: 1.5; }
+.help-start-action { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: #2dd4bf; font-size: 12px; font-weight: 600; }
+
+.help-group { margin-bottom: 16px; }
+.help-group h3 { margin: 0 0 8px; color: #7d838b; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.help-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; border: 1px solid #2b2e32; border-radius: 6px; background: #191c1f; }
+.help-item + .help-item { margin-top: 6px; }
+.help-item:hover { border-color: #383d43; }
+.help-item-text { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.help-item-text strong { display: flex; align-items: center; gap: 8px; color: #eef0f3; font-size: 13px; font-weight: 600; }
+.help-item-text > span { color: #82888f; font-size: 12px; line-height: 1.45; }
+.help-meta { color: #6a7077 !important; font-size: 11px !important; }
+.help-done { display: inline-flex; align-items: center; gap: 3px; color: #4f8a5b; font-size: 10.5px; font-weight: 700; text-transform: uppercase; }
+.help-item-actions { display: flex; flex: none; gap: 6px; }
+.help-item-actions .button { padding: 5px 11px; font-size: 12px; }
+.help-empty { color: #7d838b; font-size: 12.5px; }
+.help-footer { display: flex; flex: none; align-items: center; justify-content: space-between; padding: 12px 18px; border-top: 1px solid #2b2e32; color: #6a7077; font-size: 11.5px; }
+.help-footer kbd { padding: 1px 5px; border: 1px solid #383d43; border-radius: 3px; background: #22262b; color: #a9b0b8; font-size: 10.5px; }
