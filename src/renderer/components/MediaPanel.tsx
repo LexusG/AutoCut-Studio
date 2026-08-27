@@ -43,6 +43,7 @@ export function MediaPanel(): React.JSX.Element {
       </div>
 
       <div
+        data-tutorial-id="add-media"
         className={`drop-zone ${isDraggingFiles ? 'drop-zone-active' : ''}`}
         onDragEnter={(event) => {
           event.preventDefault()
